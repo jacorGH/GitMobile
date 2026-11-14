@@ -29,9 +29,10 @@ Editing code on an iPhone (in Textastic or similar) is easy. Getting a project w
 - Review screen marks every file as New, Changed, Unchanged or Delete, compared byte-for-byte against the repo
 - Tap any file in the review to see a line-by-line diff before pushing
 - "Unwrap" option drops a ZIP's top folder so contents land where you want
-- Optional mirror mode removes repo files that aren't in your upload
+- Optional mirror mode removes repo files that aren't in your upload, except paths you protect (for example `audio/` or `app/keys/`), kept per repository
+- A file saved twice on iPhone ("data 2.json", "data (1).json") goes back to its name in the repo, with a switch to keep the number
 - `_github`, `_gitignore`, `_nojekyll` and similar are renamed to their dot-names, working around iOS hiding dot-folders
-- Large uploads are split into batches of 50 files, wait out GitHub's rate limits, and resume where they left off
+- However large, a push is **one commit**, so GitHub Pages deploys once and workflows run once. Big uploads are sent in parts of 50 files, wait out GitHub's rate limits, and if interrupted, Push again skips every file already uploaded
 - **Quick push:** remembers which repo, branch and folder each ZIP goes to, so repeat pushes take one tap
 
 **Browsing and editing**
@@ -46,6 +47,9 @@ Editing code on an iPhone (in Textastic or similar) is easy. Getting a project w
 - Create new repositories, optionally with GitHub Pages turned on
 - Configure Pages from a branch or a GitHub Actions workflow, with a starter deploy workflow included
 - Live GitHub Actions status after every push: running, failed (with the failing step and log), or "New version is live"
+- **Run a workflow** by hand (any workflow with `workflow_dispatch`), answering its inputs, then watch the new run
+- **Downloads**: a finished run's artifacts (an app build, a report), saved to Files through the share sheet
+- **Secrets for Actions**: add, replace and delete repository secrets, typed or read from a file (a `.p8` key, a JSON). Each value is sealed on the phone with the repository's public key before it is sent
 - Re-run or cancel workflow runs
 - Releases with suggested version numbers and auto-written notes
 - Copy a repo as the starting point for a new project
@@ -57,7 +61,7 @@ Editing code on an iPhone (in Textastic or similar) is easy. Getting a project w
 2. On your iPhone, open the site in Safari, tap **Share → Add to Home Screen**. It runs full screen like an app.
 3. Create a token at [github.com/settings/tokens](https://github.com/settings/tokens/new?scopes=repo,workflow&description=GitMobile) with the **repo** and **workflow** scopes, and paste it into GitMobile.
 
-Fine-grained tokens also work with these repository permissions: Contents, Workflows, Pages and Administration (to create repos) set to read and write, and Actions set to read (write to re-run).
+Fine-grained tokens also work with these repository permissions: Contents, Workflows, Pages and Administration (to create repos) set to read and write, Actions set to read (write to re-run or start workflows), and Secrets set to read and write (to manage secrets).
 
 ## Pushing a project from iPhone
 
@@ -70,7 +74,7 @@ Keep GitMobile on screen during large pushes. iOS pauses web pages in the backgr
 ## Privacy and security
 
 - Your token is stored only in your browser's local storage and is sent only to `api.github.com`.
-- There is no server, analytics or tracking. The only outside script is JSZip, loaded from cdnjs when you first open a ZIP.
+- There is no server, analytics or tracking. The only outside scripts are JSZip, loaded from cdnjs when you first open a ZIP, and TweetNaCl, loaded from cdnjs the first time you save a secret (it seals the value before it leaves the phone).
 - Anyone with your token can act on your repos, so use an expiration date and revoke it on GitHub if your phone is lost.
 
 ## Project structure

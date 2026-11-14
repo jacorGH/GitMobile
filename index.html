@@ -349,6 +349,7 @@ textarea.field{font:14px/1.5 var(--mono);resize:vertical;min-height:160px}
 
     <section id="scr-actions" class="scr"><ul id="actions-list" class="list"></ul></section>
     <section id="scr-run" class="scr"><div class="pad" id="run-body"></div></section>
+    <section id="scr-secrets" class="scr"><div class="pad" id="secrets-body"></div></section>
 
     <section id="scr-newrepo" class="scr"><div class="pad" id="newrepo-body"></div></section>
     <section id="scr-pages" class="scr"><div class="pad" id="pages-body"></div></section>
@@ -1190,6 +1191,16 @@ function inlineText(c) {
   if (!c.bytes || c.bytes.length > INLINE_MAX || isBinary(c.bytes, c.path)) return null;
   try { return new TextDecoder('utf-8', { fatal: true }).decode(c.bytes); } catch { return null; }
 }
+// Binary uploads that are on GitHub but not yet in a commit (a push that was interrupted), remembered per repo for a day
+const BKEY = () => 'gm-blobs:' + S.repo.full_name;
+function blobCache() {
+  try { const o = JSON.parse(localStorage.getItem(BKEY()) || '{}'); return o.t && Date.now() - o.t < 864e5 ? new Set(o.s || []) : new Set(); } catch { return new Set(); }
+}
+function rememberBlob(sha) {
+  const set = blobCache(); set.add(sha);
+  try { localStorage.setItem(BKEY(), JSON.stringify({ t: Date.now(), s: [...set].slice(-4000) })); } catch {}
+}
+function forgetBlobs() { try { localStorage.removeItem(BKEY()); } catch {} }
 async function commitChanges(changes, message, onProgress = () => {}) {
   changes = changes.slice();
   S.onWait = t => onProgress(t);
@@ -1205,40 +1216,61 @@ async function commitChanges(changes, message, onProgress = () => {}) {
       const repo = await gh(R()); S.repo = repo; S.branch = repo.default_branch;
       if (!changes.length) return;
     }
-    // Reuse content GitHub already has (moved or duplicated files) instead of re-uploading it
-    const known = new Set(S.tree.filter(e => e.type === 'blob').map(e => e.sha));
-    await pool(changes.filter(c => c.bytes && !c.sha), 4, async c => { const h = await gitSha(c.bytes); if (known.has(h)) c.sha = h; });
+    // Reuse content GitHub already has (moved or duplicated files, or binaries uploaded by an earlier, interrupted push)
+    // instead of re-uploading it
+    const known = new Set(S.tree.filter(e => e.type === 'blob').map(e => e.sha)), sent0 = blobCache();
+    await pool(changes.filter(c => c.bytes && !c.sha), 4, async c => {
+      const h = await gitSha(c.bytes);
+      if (known.has(h)) c.sha = h; else if (sent0.has(h)) { c.sha = h; c.cached = true; }
+    });
 
-    const batches = makeBatches(changes), total = changes.length;
-    let ref = await gh(`${R()}/git/ref/heads/${encPath(S.branch)}`), parent = ref.object.sha, last, sent = 0;
+    // However large, a push is ONE commit (so one Pages deploy and one round of Actions). Big pushes are built in
+    // parts: each part's tree builds on the one before, and only the last becomes the commit.
+    const batches = makeBatches(changes), total = changes.length, many = batches.length > 1;
+    let ref = await gh(`${R()}/git/ref/heads/${encPath(S.branch)}`), parent = ref.object.sha, sent = 0;
+    let treeSha = (await gh(`${R()}/git/commits/${parent}`)).tree.sha;
     for (let bi = 0; bi < batches.length; bi++) {
-      const batch = batches[bi], many = batches.length > 1;
+      const batch = batches[bi];
       const tag = many ? `Part ${bi + 1} of ${batches.length}: ` : '';
-      const pc = await gh(`${R()}/git/commits/${parent}`);
-      const entries = [], blobs = [];
-      for (const c of batch) {
-        const base = { path: c.path, mode: c.mode || '100644', type: c.type || 'blob' };
-        if (c.delete) entries.push({ ...base, sha: null });
-        else if (!c.bytes || c.sha) entries.push({ ...base, sha: c.sha });
-        else { const t = inlineText(c); if (t !== null) entries.push({ ...base, content: t }); else { blobs.push(c); entries.push(base); } }
-      }
-      let up = 0;
+      const build = () => {
+        const entries = [], blobs = [];
+        for (const c of batch) {
+          const base = { path: c.path, mode: c.mode || '100644', type: c.type || 'blob' };
+          if (c.delete) entries.push({ ...base, sha: null });
+          else if (!c.bytes || c.sha) entries.push({ ...base, sha: c.sha });
+          else { const t = inlineText(c); if (t !== null) entries.push({ ...base, content: t }); else { blobs.push(c); entries.push(base); } }
+        }
+        return { entries, blobs };
+      };
+      let { entries, blobs } = build(), up = 0;
       // Binary files (images, audio) need their own upload; two at a time stays under GitHub's speed limits
-      await pool(blobs, 2, async c => {
+      const upload = async list => pool(list, 2, async c => {
         const b = await gh(`${R()}/git/blobs`, { method: 'POST', body: JSON.stringify({ content: bytesToB64(c.bytes), encoding: 'base64' }) });
-        c.sha = b.sha; entries.find(e => e.path === c.path).sha = b.sha;
-        up++; onProgress(`${tag}uploading ${up} of ${blobs.length} binary files`, (sent + up / Math.max(1, blobs.length) * batch.length * 0.8) / total);
+        c.sha = b.sha; c.cached = false; entries.find(e => e.path === c.path).sha = b.sha; rememberBlob(b.sha);
+        up++; onProgress(`${tag}uploading ${up} of ${list.length} binary files`, (sent + up / Math.max(1, list.length) * batch.length * 0.8) / total);
       });
-      onProgress(`${tag}saving ${batch.length} file${batch.length > 1 ? 's' : ''}`, (sent + batch.length * 0.85) / total);
-      const tree = await gh(`${R()}/git/trees`, { method: 'POST', body: JSON.stringify({ base_tree: pc.tree.sha, tree: entries }) });
-      const msg = many ? `${message} (part ${bi + 1} of ${batches.length})` : message;
-      last = await gh(`${R()}/git/commits`, { method: 'POST', body: JSON.stringify({ message: msg, tree: tree.sha, parents: [parent] }) });
-      await gh(`${R()}/git/refs/heads/${encPath(S.branch)}`, { method: 'PATCH', body: JSON.stringify({ sha: last.sha }) });
-      parent = last.sha; sent += batch.length;
-      S.partsDone = { done: bi + 1, total: batches.length, files: sent };
-      onProgress(many ? `Part ${bi + 1} of ${batches.length} pushed (${sent} of ${total} files)` : 'Updating branch', sent / total);
-      if (many && bi < batches.length - 1) await new Promise(r => setTimeout(r, 1000)); // breathing room between commits
+      await upload(blobs);
+      onProgress(`${tag}preparing ${batch.length} file${batch.length > 1 ? 's' : ''}`, (sent + batch.length * 0.85) / total);
+      let tree;
+      try { tree = await gh(`${R()}/git/trees`, { method: 'POST', body: JSON.stringify({ base_tree: treeSha, tree: entries }) }); }
+      catch (err) {
+        // A remembered upload GitHub no longer has (it clears unused uploads after a while): send those again, once
+        const stale = batch.filter(c => c.cached);
+        if (err.status !== 422 || !stale.length) throw err;
+        forgetBlobs(); stale.forEach(c => { c.sha = null; c.cached = false; });
+        ({ entries, blobs } = build()); up = 0;
+        await upload(blobs);
+        tree = await gh(`${R()}/git/trees`, { method: 'POST', body: JSON.stringify({ base_tree: treeSha, tree: entries }) });
+      }
+      treeSha = tree.sha; sent += batch.length;
+      if (many) onProgress(`Part ${bi + 1} of ${batches.length} ready (${sent} of ${total} files)`, sent / total * 0.95);
     }
+    onProgress('Saving the commit', 0.97);
+    const last = await gh(`${R()}/git/commits`, { method: 'POST', body: JSON.stringify({ message, tree: treeSha, parents: [parent] }) });
+    await gh(`${R()}/git/refs/heads/${encPath(S.branch)}`, { method: 'PATCH', body: JSON.stringify({ sha: last.sha }) });
+    S.partsDone = { done: 1, total: 1, files: total };
+    forgetBlobs();
+    onProgress('Pushed', 1);
     return last;
   } finally { S.onWait = null; }
 }
@@ -1256,8 +1288,8 @@ async function runCommit(changes, message, focusPath, onProgress) {
     toast('Committed to ' + S.branch, 'ok');
     return true;
   } catch (err) {
-    const pd = S.partsDone;
-    toast((pd && pd.total > 1 ? `Stopped after part ${pd.done} of ${pd.total} (${pd.files} files are on GitHub). ` : 'Commit failed: ') + friendlyError(err), 'err');
+    const kept = blobCache().size;
+    toast((kept ? `Stopped before the commit. ${kept} uploaded file${kept > 1 ? 's are' : ' is'} remembered, so Push again skips ${kept > 1 ? 'them' : 'it'}. ` : 'Commit failed: ') + friendlyError(err), 'err');
     return false;
   }
 }
@@ -1518,13 +1550,31 @@ async function addSource(kind, list, label) {
     return false;
   }
 }
+/* Protected paths: never deleted by "Remove files not in this upload" (recordings made elsewhere, keys, generated files).
+   One per line or comma: "audio/" is a folder, "*.mp3" a pattern, anything else an exact file. Kept per repository. */
+const PKEY = () => 'gm-protect:' + S.repo.full_name;
+const protectList = () => lsGet(PKEY()).split(/[\n,]+/).map(x => x.trim().replace(/^\/+/, '')).filter(Boolean);
+function protectTest() {
+  const rx = protectList().map(p => p.endsWith('/') ? new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')) :
+    new RegExp('(^|/)' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*') + '$'));
+  return path => rx.some(r => r.test(path));
+}
+// iPhone names a re-downloaded file "name 2.json" or "name (1).json"; when "name.json" is what's in the repo, use that
+const COPY_RX = /^(.*?)(?: \d+| \(\d+\))(\.[^./]+)$/;
+function originalName(path) {
+  const m = COPY_RX.exec(baseName(path)); if (!m) return null;
+  const d = dirName(path), orig = (d ? d + '/' : '') + m[1] + m[2];
+  return S.byPath.get(orig)?.type === 'blob' ? orig : null;
+}
 function stagePlan() {
   const st = S.stage, target = normPath(st.target), pre = target ? target + '/' : '';
   const map = new Map(); let dups = 0;
+  st.renames = [];
   for (const src of st.sources) for (const e of src.entries) {
     let rel = src.strip && src.common ? e.rel.slice(src.common.length + 1) : e.rel;
     if (st.undot && st.aliases.length) rel = undot(rel);
-    const path = pre + rel;
+    let path = pre + rel;
+    if (src.kind === 'files') { const o = originalName(path); if (o) { st.renames.push([path, o]); if (st.fixNames !== false) path = o; } }
     if (map.has(path)) dups++;
     map.set(path, e); // later uploads win
   }
@@ -1539,7 +1589,13 @@ function stagePlan() {
     }
     plan.push({ path, e, status, mode: ex?.type === 'blob' ? ex.mode : '100644' });
   }
-  if (st.mirror) for (const t of S.tree) if (t.type === 'blob' && t.path.startsWith(pre) && !map.has(t.path)) plan.push({ path: t.path, status: 'del', mode: t.mode });
+  st.kept = 0;
+  if (st.mirror) {
+    const isProt = protectTest();
+    for (const t of S.tree) if (t.type === 'blob' && t.path.startsWith(pre) && !map.has(t.path)) {
+      if (isProt(t.path)) st.kept++; else plan.push({ path: t.path, status: 'del', mode: t.mode });
+    }
+  }
   const order = { bad: 0, del: 1, mod: 2, new: 3, same: 4 };
   plan.sort((a, b) => order[a.status] - order[b.status] || a.path.localeCompare(b.path));
   return plan;
@@ -1566,6 +1622,12 @@ function renderStage() {
       <label class="tog" id="st-skipwf-wrap" hidden><input type="checkbox" id="st-skipwf" ${st.skipWf ? 'checked' : ''}><span><b>Skip workflow files</b><small>Push everything except .github/workflows for now.</small></span></label>
       ${st.sources.some(x => x.kind !== 'files') ? `<label class="tog"><input type="checkbox" id="st-remember" ${st.remember ? 'checked' : ''}><span><b>Remember these settings</b><small>Next time, Quick push sends ${esc(st.sources.filter(x => x.kind !== 'files').map(x => x.label).join(', '))} here with one tap.</small></span></label>` : ''}
       <label class="tog"><input type="checkbox" id="st-mirror" ${st.mirror ? 'checked' : ''}><span><b>Remove files not in this upload</b><small>Makes the destination match your uploads exactly. Leave off to only add and update.</small></span></label>
+      <div id="st-protect-wrap" ${st.mirror ? '' : 'hidden'} style="padding:4px 12px 12px">
+        <label for="st-protect" style="display:block;font-weight:600;margin-bottom:4px">Never remove</label>
+        <textarea id="st-protect" class="field" rows="2" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="audio/&#10;app/keys/" style="font-family:var(--mono);margin:0"></textarea>
+        <small style="color:var(--muted);display:block;margin-top:4px">One per line. A folder ends with /, and * matches any name (*.mp3). Remembered for this repository.</small>
+      </div>
+      <div id="st-renames"></div>
     </div>
     <div id="st-plan"></div>
     <div class="card" style="padding:12px">
@@ -1584,7 +1646,9 @@ function renderStage() {
   $('#st-addmore').onclick = addMoreMenu;
   if ($('#st-undot')) $('#st-undot').onchange = e => { st.undot = e.target.checked; updateStagePlan(); };
   $('#st-skipwf').onchange = e => { st.skipWf = e.target.checked; updateStagePlan(); };
-  $('#st-mirror').onchange = e => { st.mirror = e.target.checked; updateStagePlan(); };
+  $('#st-mirror').onchange = e => { st.mirror = e.target.checked; $('#st-protect-wrap').hidden = !st.mirror; updateStagePlan(); };
+  $('#st-protect').value = protectList().join('\n');
+  let pdeb; $('#st-protect').oninput = e => { clearTimeout(pdeb); pdeb = setTimeout(() => { lsSet(PKEY(), e.target.value.trim()); updateStagePlan(); }, 300); };
   if ($('#st-remember')) $('#st-remember').onchange = e => { st.remember = e.target.checked; };
   let deb; $('#st-target').oninput = e => { clearTimeout(deb); deb = setTimeout(() => { st.target = e.target.value; updateStagePlan(); }, 250); };
   $('#st-msg').oninput = e => { st.msgEdited = true; st.msgText = e.target.value; };
@@ -1593,6 +1657,9 @@ function renderStage() {
 }
 function updateStagePlan() {
   const st = S.stage; st.plan = stagePlan();
+  const rn = $('#st-renames');
+  if (rn) rn.innerHTML = st.renames.length ? `<label class="tog"><input type="checkbox" id="st-fixnames" ${st.fixNames !== false ? 'checked' : ''}><span><b>Use the repo's file name${st.renames.length > 1 ? 's' : ''}</b><small>${st.renames.map(([a, b]) => `“${esc(baseName(a))}” → “${esc(baseName(b))}”`).join(', ')}. iPhone adds a number when a file is saved twice.</small></span></label>` : '';
+  if ($('#st-fixnames')) $('#st-fixnames').onchange = e => { st.fixNames = e.target.checked; updateStagePlan(); };
   const wfAll = st.plan.filter(p => p.status !== 'same' && isWorkflow(p.path)).length;
   if (st.skipWf) st.plan = st.plan.filter(p => !isWorkflow(p.path));
   const wf = st.skipWf ? 0 : wfAll;
@@ -1606,7 +1673,7 @@ function updateStagePlan() {
     <div class="counts">
       ${c.bad ? `<span class="cnt bad">${c.bad} conflict${c.bad > 1 ? 's' : ''}</span>` : ''}
       <span class="cnt new">${c.new} new</span><span class="cnt mod">${c.mod} changed</span>
-      ${st.mirror ? `<span class="cnt del">${c.del} to delete</span>` : ''}<span class="cnt">${c.same} unchanged</span>
+      ${st.mirror ? `<span class="cnt del">${c.del} to delete</span>` : ''}${st.mirror && st.kept ? `<span class="cnt">${st.kept} protected</span>` : ''}<span class="cnt">${c.same} unchanged</span>
     </div>
     ${wf && lacksWorkflowScope() ? `<div class="warn" style="margin:0 0 12px"><b>Your token can't push workflow files.</b> ${wf} file${wf > 1 ? 's are' : ' is'} in .github/workflows, which GitHub only accepts from tokens with the <b>workflow</b> scope. <a href="https://github.com/settings/tokens" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">Edit your token</a>, check “workflow”, then sign out and back in. Or turn on “Skip workflow files” below to push everything else now.</div>` : ''}
     ${wf && S.scopes === null ? `<div class="warn" style="margin:0 0 12px">This upload includes ${wf} workflow file${wf > 1 ? 's' : ''}. Fine-grained tokens need the <b>Workflows: read and write</b> permission for these.</div>` : ''}
@@ -1642,7 +1709,7 @@ async function pushStage() {
   const btn = $('#st-push'), bar = $('#st-bar'), pt = $('#st-ptext');
   btn.disabled = true; btn.innerHTML = '<div class="spin"></div>Pushing'; bar.hidden = false;
   const nb = makeBatches(todo.map(p => ({ bytes: p.e?.bytes }))).length;
-  if (nb > 1) pt.textContent = `Large upload: pushing in ${nb} parts. Keep GitMobile open until it finishes.`;
+  if (nb > 1) pt.textContent = `Large upload: sending it in ${nb} parts, saved as one commit. Keep GitMobile open until it finishes.`;
   document.querySelectorAll('#stage-body input').forEach(i => i.disabled = true);
   const changes = todo.map(p => p.status === 'del' ? { path: p.path, delete: true, mode: p.mode } : { path: p.path, bytes: p.e.bytes, mode: p.mode });
   const target = normPath(st.target);
@@ -1651,11 +1718,9 @@ async function pushStage() {
   });
   if (ok) { if (st.remember) rememberTargets(st); S.stage = null; }
   else {
-    const pd = S.partsDone;
-    if (pd && pd.files) {
-      // Some parts landed: re-compare so the next push only sends what's left
-      try { await loadTree(); } catch {}
-      if (S.stage === st) { renderStage(); $('#st-ptext').textContent = `${pd.files} files already pushed. Tap Push to send the rest.`; }
+    const kept = blobCache().size;
+    if (kept && S.stage === st) {
+      renderStage(); $('#st-ptext').textContent = `${kept} file${kept > 1 ? 's were' : ' was'} already uploaded and ${kept > 1 ? 'are' : 'is'} remembered. Tap Push to finish; ${kept > 1 ? 'they' : 'it'} won't be sent again.`;
       return;
     }
     btn.disabled = false; btn.textContent = 'Try again'; document.querySelectorAll('#stage-body input').forEach(i => i.disabled = false);
@@ -1750,7 +1815,7 @@ function renderActionStrip() {
 /* Actions list */
 function showActions() {
   go('actions');
-  setHeader('Actions', `${S.repo.name} on ${S.branch}`, [{ icon: 'refresh', label: 'Refresh', fn: () => loadActionsList() }]);
+  setHeader('Actions', `${S.repo.name} on ${S.branch}`, [{ icon: 'play', label: 'Run a workflow', fn: runWorkflowMenu }, { icon: 'refresh', label: 'Refresh', fn: () => loadActionsList() }]);
   $('#actions-list').innerHTML = loadingHTML('Loading workflow runs');
   loadActionsList();
 }
@@ -1824,7 +1889,9 @@ function renderRun(run, jobs) {
           return `<div class="step ${ss.c === 'fail' ? 'failed' : ''} ${sp.conclusion === 'skipped' ? 'skipped' : ''}">${stBadge(ss)}<span class="n">${esc(sp.name)}</span><span class="dur">${sp.started_at ? fmtDur(sp.started_at, sp.completed_at) : ''}</span></div>`; }).join('')}
         ${js.c === 'fail' ? `<button class="showsame" data-log="${j.id}">${keepLogs[j.id] ? 'Hide log' : 'Show end of log'}</button>${keepLogs[j.id] ? `<pre class="logbox">${esc(keepLogs[j.id])}</pre>` : ''}` : ''}
       </div>`;
-    }).join('') : `<div class="empty">${done ? 'No jobs ran.' : 'Waiting for a runner to pick this up…'}</div>`}`;
+    }).join('') : `<div class="empty">${done ? 'No jobs ran.' : 'Waiting for a runner to pick this up…'}</div>`}
+    <div id="run-arts"></div>`;
+  if (done) loadArtifacts(run);
   $('#run-body').querySelectorAll('.act').forEach(b => b.onclick = () => runAction(b.dataset.a, run));
   $('#run-body').querySelectorAll('[data-log]').forEach(b => b.onclick = () => toggleLog(+b.dataset.log, jobs.find(j => j.id === +b.dataset.log), run, jobs));
   const pre = $('#run-body .logbox'); if (pre) pre.scrollTop = pre.scrollHeight;
@@ -1861,6 +1928,264 @@ document.addEventListener('visibilitychange', () => {
   if (S.actions.sha) pollActions();
   if (S.screen === 'run') loadRun();
 });
+
+
+/* ---------- Run a workflow (the "Run workflow" button on GitHub) ---------- */
+// Read the workflow files in the repo: which can be started by hand, and what they ask for
+function dispatchInfo(text) {
+  const lines = text.replace(/\r/g, '').split('\n');
+  const i = lines.findIndex(l => /^\s*workflow_dispatch\s*:?\s*(#.*)?$/.test(l) || /^\s*on\s*:.*\bworkflow_dispatch\b/.test(l) || /^\s*-\s*workflow_dispatch\s*$/.test(l));
+  if (i < 0) return null;
+  const name = (text.match(/^name:\s*['"]?(.+?)['"]?\s*$/m) || [])[1];
+  const inputs = [];
+  const ind = l => l.match(/^\s*/)[0].length;
+  const base = ind(lines[i]);
+  let j = i + 1;
+  while (j < lines.length && (!lines[j].trim() || lines[j].trim().startsWith('#'))) j++;
+  if (j < lines.length && ind(lines[j]) > base && /^\s*inputs\s*:/.test(lines[j])) {
+    const inBase = ind(lines[j]); let cur = null, keyInd = null;
+    for (j++; j < lines.length; j++) {
+      const l = lines[j]; if (!l.trim() || l.trim().startsWith('#')) continue;
+      const d = ind(l); if (d <= inBase) break;
+      if (keyInd === null) keyInd = d;
+      const m = l.trim().match(/^([\w-]+)\s*:\s*(.*)$/);
+      if (!m) continue;
+      if (d === keyInd) { cur = { key: m[1], description: '', default: '', required: false, type: 'string', options: [] }; inputs.push(cur); }
+      else if (cur) {
+        const v = m[2].replace(/^['"]|['"]$/g, '');
+        if (m[1] === 'description') cur.description = v;
+        else if (m[1] === 'default') cur.default = v;
+        else if (m[1] === 'required') cur.required = /true/i.test(v);
+        else if (m[1] === 'type') cur.type = v;
+        else if (m[1] === 'options') {
+          if (v.startsWith('[')) cur.options = v.slice(1, -1).split(',').map(x => x.trim().replace(/^['"]|['"]$/g, ''));
+          else for (let k = j + 1; k < lines.length && /^\s*-\s*/.test(lines[k]); k++) cur.options.push(lines[k].trim().slice(1).trim().replace(/^['"]|['"]$/g, ''));
+        }
+      }
+    }
+  }
+  return { name, inputs };
+}
+async function runWorkflowMenu() {
+  const files = workflowFiles();
+  if (!files.length) return toast('This repo has no workflows (.github/workflows)');
+  openSheet(`<div class="sh-title">Run a workflow</div>${loadingHTML('Reading workflows')}`);
+  const list = [];
+  await pool(files, 4, async e => {
+    try { const b = await gh(`${R()}/git/blobs/${e.sha}`); const info = dispatchInfo(new TextDecoder().decode(b64ToBytes(b.content))); if (info) list.push({ file: baseName(e.path), ...info }); } catch {}
+  });
+  if (S.screen !== 'actions' && S.screen !== 'browser' && S.screen !== 'run') return;
+  list.sort((a, b) => (a.name || a.file).localeCompare(b.name || b.file));
+  if (!list.length) { openSheet(`<div class="sh-title">Run a workflow</div><div class="hint" style="margin:0 12px 14px">None of this repo's workflows can be started by hand. A workflow needs <span class="mono">workflow_dispatch:</span> under <span class="mono">on:</span> for that.</div>`); return; }
+  sheetMenu(`Run on ${S.branch}`, list.map(w => ({
+    label: w.name || w.file, sub: w.inputs.length ? `${w.file} · asks for ${w.inputs.map(x => x.key).join(', ')}` : w.file, icon: 'play',
+    fn: () => startWorkflow(w)
+  })));
+}
+async function startWorkflow(w) {
+  const inputs = {};
+  for (const x of w.inputs) {
+    let v;
+    if (x.type === 'boolean') v = await ask({ title: x.description || x.key, message: `Answer true or false.`, input: x.default || 'false', ok: 'Next' });
+    else v = await ask({ title: x.description || x.key, message: x.options.length ? `One of: ${x.options.join(', ')}` : (x.required ? 'Required.' : ''), input: x.default || '', ok: 'Next' });
+    if (v === null) return;
+    if (x.required && !String(v).trim()) return toast(`${x.key} is required`, 'err');
+    if (String(v).trim() !== '') inputs[x.key] = String(v).trim();
+  }
+  const started = Date.now();
+  try {
+    await gh(`${R()}/actions/workflows/${encodeURIComponent(w.file)}/dispatches`, { method: 'POST', body: JSON.stringify({ ref: S.branch, inputs }) });
+  } catch (e) {
+    return toast(e.status === 403 || e.status === 404 ? `Couldn't start it: your token needs Actions: read and write (fine-grained) or the workflow scope (classic).` : `Couldn't start it: ${e.message}`, 'err');
+  }
+  toast(`Started ${w.name || w.file}`, 'ok');
+  // The new run takes a few seconds to appear; then open it
+  for (let k = 0; k < 8; k++) {
+    await sleep(2500);
+    try {
+      const d = await gh(`${R()}/actions/workflows/${encodeURIComponent(w.file)}/runs?event=workflow_dispatch&per_page=5`);
+      const run = (d.workflow_runs || []).find(r => new Date(r.created_at).getTime() >= started - 30000);
+      if (run) { if (S.screen === 'actions' || S.screen === 'run' || S.screen === 'browser') showRun(run.id); return; }
+    } catch {}
+  }
+  if (S.screen === 'actions') loadActionsList(true);
+}
+
+/* ---------- A run's downloads (artifacts) ---------- */
+async function loadArtifacts(run) {
+  const box = $('#run-arts'); if (!box) return;
+  let arts;
+  try { arts = (await gh(`${R()}/actions/runs/${run.id}/artifacts?per_page=50`)).artifacts || []; } catch { return; }
+  if (!$('#run-arts') || S.runId !== run.id) return;
+  if (!arts.length) return;
+  $('#run-arts').innerHTML = `<div class="sec">Downloads</div><div class="card">${arts.map((a, i) => `
+    <div class="srcrow"><span class="ico">${ic('zip')}</span>
+      <div class="rmain"><div class="rname">${esc(a.name)}</div><div class="rsub"><span class="meta">${a.expired ? 'Expired' : `${fmtSize(a.size_in_bytes)}, kept until ${new Date(a.expires_at).toLocaleDateString()}`}</span></div></div>
+      ${a.expired ? '' : `<button class="more" data-art="${i}" aria-label="Download ${esc(a.name)}">${ic('download')}</button>`}</div>`).join('')}
+    <div class="hint" style="margin:8px 12px 10px">Each download is a ZIP. Save it to Files and open it there (for an app build: the .apk or .aab inside).</div></div>`;
+  $('#run-arts').querySelectorAll('[data-art]').forEach(b => b.onclick = () => downloadArtifact(arts[+b.dataset.art], run));
+}
+async function downloadArtifact(a, run) {
+  const prog = progressSheet(`Downloading ${a.name}`);
+  try {
+    prog('Asking GitHub for the file…', 0.05);
+    const res = await fetch(`${API}${R()}/actions/artifacts/${a.id}/zip`, { headers: { Authorization: `Bearer ${S.token}`, Accept: 'application/vnd.github+json' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    // Read it in pieces so the bar moves
+    const total = +res.headers.get('content-length') || a.size_in_bytes || 0, reader = res.body && res.body.getReader();
+    let blob;
+    if (reader) {
+      const parts = []; let got = 0;
+      for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); got += value.length; prog(`${fmtSize(got)}${total ? ' of ' + fmtSize(total) : ''}`, total ? got / total : null); }
+      blob = new Blob(parts, { type: 'application/zip' });
+    } else blob = await res.blob();
+    const name = `${a.name}.zip`;
+    openSheet(`<div class="sh-title">${esc(name)} is ready</div>
+      <div class="hint" style="margin:0 10px 12px">${fmtSize(blob.size)}. Choose “Save to Files”.</div>
+      <div style="padding:0 6px"><button class="btn" id="art-save" style="margin:0">${ic('download')}Save ZIP</button></div>`);
+    $('#art-save').onclick = () => saveBlob(blob, name);
+  } catch {
+    // Some browsers block this download (it comes from GitHub's storage, not its API); GitHub's own page always works
+    closeSheet(); toast("Couldn't download it here, opening the run on GitHub (signed in, the file is under Artifacts)");
+    window.open(run.html_url, '_blank');
+  }
+}
+// Hand a file to the share sheet (Save to Files), or download it where sharing isn't available
+async function saveBlob(blob, name) {
+  const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); closeSheet(); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000); closeSheet();
+}
+
+/* ---------- Secrets for Actions ---------- */
+// GitHub only accepts a secret sealed with the repo's public key (a libsodium "sealed box"): X25519 + XSalsa20-Poly1305
+// from TweetNaCl (loaded from cdnjs the first time), with the nonce from BLAKE2b below. The value never leaves the phone
+// unencrypted, and GitHub never shows it again; you can only replace or delete it.
+function loadNaCl() {
+  if (window.nacl && window.nacl.box) return Promise.resolve();
+  const urls = ['https://cdnjs.cloudflare.com/ajax/libs/tweetnacl/1.0.3/nacl-fast.min.js', 'https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js'];
+  return urls.reduce((p, u) => p.catch(() => new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = u; s.onload = () => (window.nacl ? res() : rej()); s.onerror = rej; document.head.appendChild(s);
+  })), Promise.reject()).catch(() => { throw new Error('Saving secrets needs an internet connection'); });
+}
+// BLAKE2b (RFC 7693), unkeyed; 64-bit words as pairs of 32-bit halves
+function blake2b(input, outlen) {
+  const IV = [0xf3bcc908, 0x6a09e667, 0x84caa73b, 0xbb67ae85, 0xfe94f82b, 0x3c6ef372, 0x5f1d36f1, 0xa54ff53a,
+    0xade682d1, 0x510e527f, 0x2b3e6c1f, 0x9b05688c, 0xfb41bd6b, 0x1f83d9ab, 0x137e2179, 0x5be0cd19];
+  const SIGMA = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15, 14,10,4,8,9,15,13,6,1,12,0,2,11,7,5,3, 11,8,12,0,5,2,15,13,10,14,3,6,7,1,9,4,
+    7,9,3,1,13,12,11,14,2,6,5,10,4,0,15,8, 9,0,5,7,2,4,10,15,14,1,11,12,6,8,3,13, 2,12,6,10,0,11,8,3,4,13,7,5,15,14,1,9,
+    12,5,1,15,14,13,4,10,0,7,6,3,9,2,8,11, 13,11,7,14,12,1,3,9,5,0,15,4,8,6,2,10, 6,15,14,9,11,3,0,8,12,2,13,7,1,4,10,5,
+    10,2,8,4,7,6,1,5,15,11,9,14,3,12,13,0, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15, 14,10,4,8,9,15,13,6,1,12,0,2,11,7,5,3].map(x => x * 2);
+  const h = IV.slice(); h[0] ^= 0x01010000 ^ outlen;
+  const v = new Uint32Array(32), m = new Uint32Array(32), buf = new Uint8Array(128);
+  const add64 = (a, b) => { const lo = v[a] + v[b]; let hi = v[a + 1] + v[b + 1]; if (lo >= 0x100000000) hi++; v[a] = lo; v[a + 1] = hi; };
+  const add64c = (a, lo0, hi0) => { const lo = v[a] + lo0; let hi = v[a + 1] + hi0; if (lo >= 0x100000000) hi++; v[a] = lo; v[a + 1] = hi; };
+  const G = (a, b, c, d, ix, iy) => {
+    add64(a, b); add64c(a, m[ix], m[ix + 1]);
+    let xl = v[d] ^ v[a], xh = v[d + 1] ^ v[a + 1]; v[d] = xh; v[d + 1] = xl;
+    add64(c, d);
+    xl = v[b] ^ v[c]; xh = v[b + 1] ^ v[c + 1]; v[b] = (xl >>> 24) ^ (xh << 8); v[b + 1] = (xh >>> 24) ^ (xl << 8);
+    add64(a, b); add64c(a, m[iy], m[iy + 1]);
+    xl = v[d] ^ v[a]; xh = v[d + 1] ^ v[a + 1]; v[d] = (xl >>> 16) ^ (xh << 16); v[d + 1] = (xh >>> 16) ^ (xl << 16);
+    add64(c, d);
+    xl = v[b] ^ v[c]; xh = v[b + 1] ^ v[c + 1]; v[b] = (xh >>> 31) ^ (xl << 1); v[b + 1] = (xl >>> 31) ^ (xh << 1);
+  };
+  let t = 0, c = 0;
+  const compress = last => {
+    for (let i = 0; i < 16; i++) { v[i] = h[i]; v[i + 16] = IV[i]; }
+    v[24] ^= t; v[25] ^= Math.floor(t / 0x100000000);
+    if (last) { v[28] = ~v[28]; v[29] = ~v[29]; }
+    for (let i = 0; i < 32; i++) m[i] = buf[i * 4] ^ (buf[i * 4 + 1] << 8) ^ (buf[i * 4 + 2] << 16) ^ (buf[i * 4 + 3] << 24);
+    for (let r = 0; r < 12; r++) {
+      const s = SIGMA.slice(r * 16, r * 16 + 16);
+      G(0, 8, 16, 24, s[0], s[1]); G(2, 10, 18, 26, s[2], s[3]); G(4, 12, 20, 28, s[4], s[5]); G(6, 14, 22, 30, s[6], s[7]);
+      G(0, 10, 20, 30, s[8], s[9]); G(2, 12, 22, 24, s[10], s[11]); G(4, 14, 16, 26, s[12], s[13]); G(6, 8, 18, 28, s[14], s[15]);
+    }
+    for (let i = 0; i < 16; i++) h[i] = (h[i] ^ v[i] ^ v[i + 16]) >>> 0;
+  };
+  for (let i = 0; i < input.length; i++) { if (c === 128) { t += c; compress(false); c = 0; } buf[c++] = input[i]; }
+  t += c; while (c < 128) buf[c++] = 0; compress(true);
+  const out = new Uint8Array(outlen);
+  for (let i = 0; i < outlen; i++) out[i] = h[i >> 2] >>> (8 * (i & 3));
+  return out;
+}
+function sealSecret(text, pkB64) {
+  const pk = b64ToBytes(pkB64), e = nacl.box.keyPair(), n = new Uint8Array(64);
+  n.set(e.publicKey); n.set(pk, 32);
+  const box = nacl.box(new TextEncoder().encode(text), blake2b(n, 24), pk, e.secretKey);
+  const out = new Uint8Array(32 + box.length); out.set(e.publicKey); out.set(box, 32);
+  return bytesToB64(out);
+}
+function showSecrets() {
+  go('secrets');
+  setHeader('Secrets for Actions', S.repo.name, [{ icon: 'plus', label: 'New secret', fn: () => editSecret() }]);
+  $('#secrets-body').innerHTML = loadingHTML('Loading secrets');
+  loadSecrets();
+}
+async function loadSecrets() {
+  const repo = S.repo;
+  try {
+    const d = await gh(`${R()}/actions/secrets?per_page=100`);
+    if (S.screen !== 'secrets' || S.repo !== repo) return;
+    const list = d.secrets || [];
+    $('#secrets-body').innerHTML = `
+      <div class="hint" style="margin:4px 4px 12px">Workflows read these as <span class="mono">\${{ secrets.NAME }}</span>. GitHub never shows a saved value again; you can replace or delete it.</div>
+      <div class="card">${list.length ? list.map((x, i) => `
+        <div class="srcrow"><span class="ico">${ic('lock')}</span>
+          <div class="rmain"><div class="rname mono">${esc(x.name)}</div><div class="rsub"><span class="meta">Updated ${timeAgo(x.updated_at)}</span></div></div>
+          <button class="more" data-s="${i}" aria-label="Options for ${esc(x.name)}">${ic('more')}</button></div>`).join('') : '<div class="empty">No secrets yet.</div>'}
+      </div>
+      <button class="btn" id="sec-new" style="margin-top:12px">${ic('plus')}New secret</button>`;
+    $('#sec-new').onclick = () => editSecret();
+    $('#secrets-body').querySelectorAll('[data-s]').forEach(b => b.onclick = () => {
+      const x = list[+b.dataset.s];
+      sheetMenu(x.name, [
+        { label: 'Replace the value', icon: 'edit', fn: () => editSecret(x.name) },
+        { label: 'Delete', icon: 'trash', danger: true, fn: async () => {
+          if (!await ask({ title: `Delete ${x.name}?`, message: 'Workflows that use it will fail until it is added again.', ok: 'Delete', danger: true })) return;
+          try { await gh(`${R()}/actions/secrets/${encodeURIComponent(x.name)}`, { method: 'DELETE' }); toast('Deleted', 'ok'); loadSecrets(); } catch (e) { toast(`Couldn't delete: ${e.message}`, 'err'); }
+        } }
+      ]);
+    });
+  } catch (e) {
+    if (S.screen !== 'secrets') return;
+    $('#secrets-body').innerHTML = `<div class="empty">Couldn't load secrets: ${esc(e.status === 403 || e.status === 404 ? 'your token needs the repo scope (classic) or Secrets: read and write (fine-grained).' : e.message)}</div>`;
+  }
+}
+function editSecret(name) {
+  openSheet(`<div class="sh-title">${name ? 'Replace ' + esc(name) : 'New secret'}</div>
+    <div style="padding:0 10px 8px">
+      <input id="sc-name" class="field mono" placeholder="NAME_IN_CAPITALS" autocapitalize="characters" autocorrect="off" spellcheck="false" style="margin-bottom:10px" ${name ? 'disabled' : ''}>
+      <textarea id="sc-val" class="field mono" rows="6" placeholder="Value (paste it, or pick a file below)" autocapitalize="off" autocorrect="off" spellcheck="false" style="margin-bottom:8px"></textarea>
+      <button class="btn ghost" id="sc-file" style="margin:0 0 8px">${ic('file')}Use a file's contents (.p8, .json, .txt)</button>
+      <input type="file" id="sc-in" hidden>
+      <button class="btn" id="sc-save" style="margin:0">${ic('lock')}Encrypt and save</button>
+      <div class="hint" style="margin:8px 2px 0">Sealed on this phone with the repo's public key before it is sent.</div>
+    </div>`);
+  if (name) $('#sc-name').value = name;
+  $('#sc-file').onclick = () => { const i = $('#sc-in'); i.value = ''; i.click(); };
+  $('#sc-in').onchange = async e => { const f = e.target.files[0]; if (!f) return; $('#sc-val').value = await f.text(); toast(`Loaded ${f.name}`); };
+  $('#sc-save').onclick = async () => {
+    const n = ($('#sc-name').value || '').trim().toUpperCase(), v = $('#sc-val').value;
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(n) || /^GITHUB_/.test(n)) return toast('Names use capitals, numbers and _, and cannot start with GITHUB_', 'err');
+    if (!v) return toast('Add a value', 'err');
+    const btn = $('#sc-save'); btn.disabled = true; btn.innerHTML = '<div class="spin"></div>Saving';
+    try {
+      await loadNaCl();
+      const key = await gh(`${R()}/actions/secrets/public-key`);
+      await gh(`${R()}/actions/secrets/${encodeURIComponent(n)}`, { method: 'PUT', body: JSON.stringify({ encrypted_value: sealSecret(v, key.key), key_id: key.key_id }) });
+      closeSheet(); toast(`Saved ${n}`, 'ok');
+      if (S.screen === 'secrets') loadSecrets();
+    } catch (e) {
+      btn.disabled = false; btn.innerHTML = `${ic('lock')}Encrypt and save`;
+      toast(e.status === 403 || e.status === 404 ? `Your token can't write secrets (classic: repo scope; fine-grained: Secrets read and write).` : `Couldn't save: ${e.message}`, 'err');
+    }
+  };
+}
 
 /* ---------- New repository ---------- */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -2119,6 +2444,8 @@ function repoTools() {
     { label: 'Make a copy', sub: 'A new repo with these files', icon: 'copy', fn: copyRepo },
     { label: 'GitHub Pages', icon: 'globe', fn: showPages },
     { label: 'Actions', icon: 'play', fn: showActions },
+    { label: 'Run a workflow', sub: 'Start one that has a “Run workflow” button on GitHub', icon: 'bolt', fn: () => { showActions(); runWorkflowMenu(); } },
+    { label: 'Secrets for Actions', sub: 'Passwords and keys your workflows use', icon: 'lock', fn: showSecrets },
     { label: 'Open on GitHub', icon: 'link', fn: () => window.open(`https://github.com/${S.repo.full_name}/tree/${encPath(S.branch)}/${encPath(f)}`, '_blank') }
   ]);
 }
@@ -2149,15 +2476,7 @@ async function downloadZip(folder) {
     openSheet(`<div class="sh-title">${esc(name)} is ready</div>
       <div class="hint" style="margin:0 10px 12px">${items.length} files, ${fmtSize(blob.size)}. Choose “Save to Files”, then unzip it where Textastic can see it.</div>
       <div style="padding:0 6px"><button class="btn" id="dz-save" style="margin:0">${ic('download')}Save ZIP</button></div>`);
-    $('#dz-save').onclick = async () => {
-      const file = new File([blob], name, { type: 'application/zip' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file] }); closeSheet(); return; } catch (e) { if (e.name === 'AbortError') return; }
-      }
-      const url = URL.createObjectURL(blob), a = document.createElement('a');
-      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000); closeSheet();
-    };
+    $('#dz-save').onclick = () => saveBlob(blob, name);
   } catch (err) { closeSheet(); toast("Couldn't build the ZIP: " + err.message, 'err'); }
 }
 
@@ -2439,6 +2758,7 @@ $('#btn-back').onclick = async () => {
     case 'releases': showBrowser(); break;
     case 'relnew': showReleases(); break;
     case 'run': clearTimeout(S.runT); S.runId = null; showActions(); break;
+    case 'secrets': showBrowser(); break;
     case 'editor':
       if (S.edit && $('#ed-text').value !== S.edit.orig && !await ask({ title: 'Discard your edits?', ok: 'Discard', danger: true })) return;
       if (S.edit && !S.edit.isNew && S.file) { S.edit = null; reshowFile(); } else { S.edit = null; showBrowser(); }
