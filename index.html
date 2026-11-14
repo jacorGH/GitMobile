@@ -1,0 +1,2457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1722">
+<title>GitMobile</title>
+<style>
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --surface2:#eaeef3; --line:#dce2ea; --text:#16202b; --muted:#65738a;
+  --accent:#2f6fe4; --accent-ink:#fff; --add:#1b9a5e; --mod:#b8820f; --del:#d1453b; --folder:#4a8ff0;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0f1722; --surface:#172130; --surface2:#1f2b3c; --line:#29374c; --text:#e7ecf3; --muted:#8b99ae;
+    --accent:#5b8def; --add:#40c487; --mod:#e2ab3c; --del:#f06b60; --folder:#6aa6ff; }
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input,textarea{font:inherit;color:var(--text)}
+[hidden]{display:none!important}
+.i{width:20px;height:20px;flex-shrink:0}
+
+#app{display:flex;flex-direction:column;position:fixed;left:0;right:0;top:var(--vvt,0px);height:var(--vvh,100dvh);max-width:720px;margin:0 auto;background:var(--bg)}
+header{display:flex;align-items:center;gap:8px;padding:calc(10px + env(safe-area-inset-top)) 12px 10px;
+  background:var(--surface);border-bottom:1px solid var(--line);flex-shrink:0}
+.hbtn{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:var(--text)}
+.hbtn:active{background:var(--surface2)}
+.htitle{flex:1;min-width:0}
+#h-title{font-weight:650;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#h-sub{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hact{display:flex;gap:2px}
+main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+.scr{display:none}.scr.on{display:block}
+#scr-editor.on{display:flex;flex-direction:column;height:100%}
+
+/* Login */
+.login{padding:28px 20px;max-width:460px;margin:0 auto}
+.login h2{font-size:26px;margin:8px 0 6px;letter-spacing:-.01em}
+.login p{color:var(--muted);margin:0 0 20px}
+.steps{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px 14px 34px;margin:0 0 18px;font-size:14.5px}
+.steps li{margin:4px 0}
+.steps a{color:var(--accent);font-weight:600}
+.field{width:100%;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:16px;outline:none}
+.field:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;border-radius:12px;
+  background:var(--accent);color:var(--accent-ink);font-weight:650;margin-top:12px}
+.btn:disabled{opacity:.55}
+.btn.ghost{background:var(--surface2);color:var(--text)}
+.btn.danger{background:var(--del)}
+.fine{font-size:12.5px;color:var(--muted);margin-top:14px;text-align:center}
+
+/* Lists */
+.search{padding:12px;position:sticky;top:0;background:var(--bg);z-index:2}
+.list{list-style:none;margin:0;padding:0;background:var(--surface);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.row{display:flex;align-items:center;gap:12px;padding:12px 8px 12px 14px;border-bottom:1px solid var(--line);min-height:62px}
+.row:last-child{border-bottom:0}
+.row:active{background:var(--surface2)}
+.ico{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;flex-shrink:0;background:var(--surface2);color:var(--muted)}
+.ico.dir{background:color-mix(in srgb,var(--folder) 16%,transparent);color:var(--folder)}
+.ico.dir svg{fill:currentColor;fill-opacity:.35}
+.rmain{flex:1;min-width:0}
+.rname{font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rsub{display:flex;gap:10px;font-size:12.5px;color:var(--muted);margin-top:2px;min-width:0}
+.rsub .meta{flex-shrink:0}
+.rsub .cmsg{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.rtime{font-size:12.5px;color:var(--muted);white-space:nowrap;flex-shrink:0}
+.more{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--muted);flex-shrink:0}
+.more:active{background:var(--surface2)}
+.empty{padding:40px 24px;text-align:center;color:var(--muted)}
+.loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:36px;color:var(--muted)}
+.spin{width:18px;height:18px;border:2.5px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* Browser */
+#crumbbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg);border-bottom:1px solid var(--line)}
+.chip{display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:13.5px;font-weight:600;flex-shrink:0;max-width:40%}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip .i{width:16px;height:16px}
+.crumbs{display:flex;align-items:center;overflow-x:auto;white-space:nowrap;font-family:var(--mono);font-size:13.5px;scrollbar-width:none}
+.crumbs::-webkit-scrollbar{display:none}
+.crumbs button{padding:6px 4px;color:var(--accent)}
+.crumbs button:last-child{color:var(--text);font-weight:600}
+.crumbs .sep{color:var(--muted);padding:0 1px}
+.latest{margin:12px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);display:block;width:calc(100% - 24px);text-align:left}
+.latest .m{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.latest .s{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;gap:10px}
+.latest .sha{font-family:var(--mono)}
+.warn{margin:12px;padding:12px 14px;border-radius:12px;background:color-mix(in srgb,var(--mod) 14%,transparent);font-size:14px}
+
+#fab{position:fixed;right:max(20px,calc(50% - 340px));bottom:calc(22px + env(safe-area-inset-bottom));height:54px;padding:0 20px 0 16px;border-radius:27px;
+  background:var(--accent);color:var(--accent-ink);display:flex;align-items:center;gap:8px;font-weight:650;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:10}
+#fab:active{transform:scale(.97)}
+
+/* File screen */
+.pad{padding:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:12px}
+.preview img{display:block;max-width:100%;margin:0 auto;background:repeating-conic-gradient(var(--surface2) 0 25%,transparent 0 50%) 0 0/16px 16px}
+.preview pre{margin:0;padding:12px 14px;max-height:46vh;overflow:auto;font:12.5px/1.5 var(--mono);white-space:pre;tab-size:2}
+.preview .note{padding:18px;color:var(--muted);text-align:center;font-size:14px}
+dl.meta{margin:0;padding:4px 14px}
+dl.meta div{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+dl.meta div:last-child{border-bottom:0}
+dl.meta dt{color:var(--muted);width:92px;flex-shrink:0}
+dl.meta dd{margin:0;min-width:0;overflow-wrap:anywhere}
+dl.meta .mono{font-family:var(--mono);font-size:13px}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.act{display:flex;align-items:center;gap:8px;padding:13px 14px;border-radius:12px;background:var(--surface);border:1px solid var(--line);font-weight:560;font-size:15px;text-align:left}
+.act:active{background:var(--surface2)}
+.act.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.act.danger{color:var(--del)}
+.act .i{width:18px;height:18px}
+
+/* Editor */
+main.flush{padding-bottom:0;overflow:hidden}
+.findbar{display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--surface);border-bottom:1px solid var(--line);flex-shrink:0}
+.findbar .fr{display:flex;align-items:center;gap:6px}
+.findbar input{flex:1;min-width:0;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);font:16px var(--mono);outline:none}
+.findbar .cnt2{font:12px var(--mono);color:var(--muted);min-width:44px;text-align:center}
+.code{flex:1;display:flex;min-height:0;background:var(--surface);overflow:hidden;font:13px/20px var(--mono)}
+.gutter{flex-shrink:0;overflow:hidden;background:var(--surface2);color:var(--muted);text-align:right;border-right:1px solid var(--line);-webkit-user-select:none;user-select:none;position:relative}
+.gutter pre{margin:0;padding:10px 8px 10px 10px;font:inherit;position:relative}
+.layer{position:relative;will-change:transform}
+.cview{flex:1;position:relative;overflow:hidden;min-width:0}
+.cview .layer{position:absolute;top:0;left:0;min-width:100%}
+#ed-hl,#ed-text{margin:0;padding:10px 12px;font:inherit;tab-size:2;-moz-tab-size:2;white-space:pre;letter-spacing:0;word-spacing:0;text-rendering:optimizeSpeed}
+#ed-hl{position:relative;color:var(--text);pointer-events:none}
+#ed-text{position:absolute;inset:0;width:100%;height:100%;border:0;outline:none;resize:none;background:transparent;color:transparent;-webkit-text-fill-color:transparent;
+  caret-color:var(--accent);overflow:auto;-webkit-appearance:none;appearance:none;border-radius:0;z-index:2;overscroll-behavior:contain}
+#ed-text::selection{background:color-mix(in srgb,var(--accent) 32%,transparent)}
+.aline{position:absolute;left:0;right:0;height:20px;background:color-mix(in srgb,var(--accent) 9%,transparent);pointer-events:none}
+.gutter .aline{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.fmark{position:absolute;height:20px;background:color-mix(in srgb,var(--mod) 45%,transparent);border-radius:3px;pointer-events:none;outline:1px solid var(--mod)}
+.keybar{display:flex;align-items:center;gap:6px;padding:6px 8px calc(6px + env(safe-area-inset-bottom));background:var(--surface);border-top:1px solid var(--line);overflow-x:auto;scrollbar-width:none;flex-shrink:0}
+.keybar::-webkit-scrollbar{display:none}
+.key{min-width:38px;height:38px;padding:0 9px;border-radius:9px;background:var(--surface2);font:16px var(--mono);flex-shrink:0;display:grid;place-items:center}
+.key:active{background:var(--line)}
+.key .i{width:18px;height:18px}
+.pos{font:12px var(--mono);color:var(--muted);padding:0 8px 0 4px;flex-shrink:0;white-space:nowrap;height:38px}
+.t-com{color:#6e7f93;font-style:italic}.t-str{color:#1a7f37}.t-kw{color:#8a3fd1}.t-num,.t-lit{color:#b25a00}
+.t-fn,.t-key{color:#2a62c8}.t-tag{color:#c0352e}.t-attr{color:#956000}.t-punc{color:var(--muted)}
+@media (prefers-color-scheme: dark){
+  .t-com{color:#7b8aa1}.t-str{color:#93d58d}.t-kw{color:#d49dff}.t-num,.t-lit{color:#f3a75b}
+  .t-fn,.t-key{color:#82b3ff}.t-tag{color:#ff8b80}.t-attr{color:#ffcd6e}
+}
+
+/* Stage */
+.tog{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-bottom:1px solid var(--line)}
+.tog:last-child{border-bottom:0}
+.tog input{width:22px;height:22px;margin:1px 0 0;accent-color:var(--accent);flex-shrink:0}
+.tog b{display:block;font-weight:600;font-size:15px}
+.tog small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+.pathin{display:flex;align-items:center;gap:4px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.pathin label{color:var(--muted);font-size:14px;margin-right:6px;flex-shrink:0}
+.pathin input{flex:1;min-width:0;border:0;background:none;outline:none;font-family:var(--mono);font-size:16px}
+.counts{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 12px}
+.cnt{padding:6px 10px;border-radius:9px;font-size:13.5px;font-weight:600;background:var(--surface2)}
+.cnt.new{color:var(--add);background:color-mix(in srgb,var(--add) 14%,transparent)}
+.cnt.mod{color:var(--mod);background:color-mix(in srgb,var(--mod) 14%,transparent)}
+.cnt.del{color:var(--del);background:color-mix(in srgb,var(--del) 14%,transparent)}
+.cnt.bad{color:#fff;background:var(--del)}
+.plan .row{min-height:48px;padding:9px 14px}
+.plan .p{font-family:var(--mono);font-size:13px;overflow-wrap:anywhere;flex:1;min-width:0}
+.tag{font-size:11.5px;font-weight:700;padding:3px 7px;border-radius:6px;flex-shrink:0;width:64px;text-align:center}
+.tag.new{color:var(--add);background:color-mix(in srgb,var(--add) 14%,transparent)}
+.tag.mod{color:var(--mod);background:color-mix(in srgb,var(--mod) 14%,transparent)}
+.tag.del{color:var(--del);background:color-mix(in srgb,var(--del) 14%,transparent)}
+.tag.same{color:var(--muted);background:var(--surface2)}
+.tag.bad{color:#fff;background:var(--del)}
+.sz{font-size:12px;color:var(--muted);flex-shrink:0}
+.showsame{width:100%;padding:14px;color:var(--accent);font-weight:600;text-align:center}
+.bar{height:6px;border-radius:3px;background:var(--surface2);overflow:hidden;margin-top:10px}
+.bar div{height:100%;width:0;background:var(--accent);transition:width .2s}
+.ptext{font-size:13px;color:var(--muted);margin-top:6px;min-height:18px}
+.srcrow{display:flex;align-items:center;gap:12px;padding:10px 8px 10px 14px;border-bottom:1px solid var(--line)}
+.sec{font-size:13px;font-weight:600;color:var(--muted);margin:16px 4px 6px}
+
+/* Actions */
+.astrip{display:flex;align-items:stretch;margin:12px 12px 0;border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);background:var(--surface)}
+.astrip .main{flex:1;display:flex;align-items:center;gap:12px;padding:12px 14px;text-align:left;min-width:0}
+.astrip b{display:block;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.astrip small{display:block;color:var(--muted);font-size:12.5px}
+.astrip .site{padding:0 14px;font-weight:650;font-size:14px;border-left:1px solid var(--line);color:var(--accent)}
+.astrip.ok{border-color:color-mix(in srgb,var(--add) 45%,transparent);background:color-mix(in srgb,var(--add) 10%,var(--surface))}
+.astrip.fail{border-color:color-mix(in srgb,var(--del) 45%,transparent);background:color-mix(in srgb,var(--del) 10%,var(--surface))}
+.astrip.run,.astrip.wait{border-color:color-mix(in srgb,var(--mod) 45%,transparent);background:color-mix(in srgb,var(--mod) 10%,var(--surface))}
+.st{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;flex-shrink:0}
+.st .i{width:16px;height:16px;stroke-width:2.6}
+.st.ok{color:#fff;background:var(--add)}.st.fail{color:#fff;background:var(--del)}
+.st.wait{color:var(--mod);border:2px dashed var(--mod)}.st.mute{color:var(--muted);background:var(--surface2)}
+.st.run .spin{width:20px;height:20px;border-width:2.5px;border-color:color-mix(in srgb,var(--mod) 30%,transparent);border-top-color:var(--mod)}
+.job{margin-bottom:12px}
+.job-h{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);font-weight:650}
+.job-h span.n{flex:1;min-width:0;overflow-wrap:anywhere}
+.dur{font-size:12.5px;color:var(--muted);font-weight:400;flex-shrink:0}
+.step{display:flex;align-items:center;gap:10px;padding:9px 14px;font-size:14px;border-bottom:1px solid var(--line)}
+.step:last-child{border-bottom:0}
+.step .st{width:20px;height:20px}.step .st .i{width:13px;height:13px}
+.step .st.run .spin{width:16px;height:16px}
+.step span.n{flex:1;min-width:0;overflow-wrap:anywhere}
+.step.failed{background:color-mix(in srgb,var(--del) 10%,transparent);font-weight:600}
+.step.skipped span.n{color:var(--muted)}
+.logbox{margin:0;padding:10px 14px;max-height:50vh;overflow:auto;font:11.5px/1.45 var(--mono);white-space:pre;background:var(--surface2);border-top:1px solid var(--line)}
+.status-line{display:flex;align-items:center;gap:12px;padding:14px;font-size:17px;font-weight:650;border-bottom:1px solid var(--line)}
+.status-line .st{width:30px;height:30px}.status-line .st .i{width:18px;height:18px}
+
+/* Forms: new repo + pages */
+.pathin select{flex:1;min-width:0;border:0;background:none;font-size:16px;color:var(--text);-webkit-appearance:none;appearance:none}
+.pathin .chev{color:var(--muted)}
+.tog input[type=radio]{border-radius:50%}
+.tog.off{opacity:.5}
+.urlrow{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.urlrow a{flex:1;min-width:0;color:var(--accent);font-weight:600;overflow-wrap:anywhere;text-decoration:none}
+.mini{padding:7px 11px;border-radius:9px;background:var(--surface2);font-size:13.5px;font-weight:600;flex-shrink:0}
+.hint{font-size:13.5px;color:var(--muted);margin:10px 4px 0}
+.hint.bad{color:var(--del)}
+
+/* Diff, releases, tools */
+.crumbs{flex:1;min-width:0}
+#br-tools{width:36px;height:36px;flex-shrink:0}
+.diffbox{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.diff{min-width:max-content;font:12px/18px var(--mono);padding:4px 0}
+.dl{display:flex;white-space:pre}
+.dl .ln{width:38px;flex-shrink:0;text-align:right;padding-right:6px;color:var(--muted);-webkit-user-select:none;user-select:none}
+.dl .dt{padding:0 12px 0 6px}
+.dl.add{background:color-mix(in srgb,var(--add) 15%,transparent)}
+.dl.del{background:color-mix(in srgb,var(--del) 15%,transparent)}
+.hunk{color:var(--muted);background:var(--surface2);padding:3px 10px;font-size:11.5px;margin:4px 0}
+.plan .row{cursor:pointer}
+.rel{padding:14px;margin-bottom:10px}
+.rel .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rel .tagname{font:600 13px var(--mono);padding:3px 8px;border-radius:7px;background:var(--surface2)}
+.rel .badge{font-size:11.5px;font-weight:700;padding:3px 7px;border-radius:6px}
+.badge.latest{color:var(--add);background:color-mix(in srgb,var(--add) 14%,transparent)}
+.badge.pre{color:var(--mod);background:color-mix(in srgb,var(--mod) 14%,transparent)}
+.badge.draft{color:var(--muted);background:var(--surface2)}
+.rel h4{margin:8px 0 2px;font-size:16px}
+.rel .notes{font-size:13.5px;color:var(--muted);white-space:pre-wrap;max-height:5.6em;overflow:hidden;margin-top:6px}
+.chips{display:flex;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+textarea.field{font:14px/1.5 var(--mono);resize:vertical;min-height:160px}
+.savedtag{font-size:11px;font-weight:700;color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent);padding:2px 6px;border-radius:5px;margin-left:6px;vertical-align:middle}
+
+/* Multi-select */
+.chk{width:24px;height:24px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;flex-shrink:0;color:#fff}
+.chk .i{width:15px;height:15px;stroke-width:3}
+.row.sel{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.row.sel .chk{background:var(--accent);border-color:var(--accent)}
+#br-list.selecting .more{display:none}
+#br-list .row{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#selbar{position:fixed;left:0;right:0;bottom:0;max-width:720px;margin:0 auto;z-index:12;display:flex;align-items:center;gap:8px;
+  padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -4px 16px rgba(0,0,0,.12)}
+#selbar .count{flex:1;font-weight:650;font-size:15px}
+#selbar .count small{display:block;font-weight:400;color:var(--muted);font-size:12.5px}
+#selbar .btn{width:auto;margin:0;padding:11px 16px}
+
+.fp-path{font:600 13px var(--mono);color:var(--muted);padding:0 10px 8px;overflow-wrap:anywhere}
+.sh-item .ico.dir{width:30px;height:30px}
+#selbar .btn .i{width:18px;height:18px}
+
+/* Sheet + modal + toast */
+#backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40}
+#backdrop.on{opacity:1;pointer-events:auto}
+#sheet{position:fixed;left:0;right:0;bottom:0;max-width:720px;margin:0 auto;background:var(--surface);border-radius:18px 18px 0 0;
+  padding:8px 10px calc(14px + env(safe-area-inset-bottom));transform:translateY(105%);transition:transform .25s ease;z-index:41;max-height:80dvh;overflow-y:auto}
+#sheet.on{transform:none}
+.grab{width:38px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 10px}
+.sh-title{font-weight:650;padding:4px 10px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sh-item{display:flex;align-items:center;gap:12px;width:100%;padding:14px 12px;border-radius:12px;text-align:left;font-size:16px}
+.sh-item:active{background:var(--surface2)}
+.sh-item small{display:block;color:var(--muted);font-size:13px}
+.sh-item.danger{color:var(--del)}
+.sh-item.sel{font-weight:650;color:var(--accent)}
+#modal{position:fixed;inset:0;display:grid;place-items:center;padding:24px;z-index:60;background:rgba(0,0,0,.45)}
+.dlg{background:var(--surface);border-radius:16px;padding:18px;width:100%;max-width:380px}
+.dlg h3{margin:0 0 6px;font-size:18px}
+.dlg p{margin:0 0 12px;color:var(--muted);font-size:14.5px;overflow-wrap:anywhere}
+.dlg .field{font-family:var(--mono);font-size:16px}
+.dlg .row2{display:flex;gap:8px;margin-top:14px}
+.dlg .row2 .btn{margin:0}
+#toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translate(-50%,20px);opacity:0;pointer-events:none;
+  background:#1d2533;color:#fff;padding:11px 16px;border-radius:12px;font-size:14.5px;max-width:calc(100% - 32px);transition:all .25s;z-index:70;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#toast.err{background:#9f2d25}#toast.ok{background:#17714a}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <button id="btn-back" class="hbtn" aria-label="Back" hidden></button>
+    <div class="htitle"><div id="h-title">GitMobile</div><div id="h-sub"></div></div>
+    <div class="hact" id="h-actions"></div>
+  </header>
+  <main id="main">
+    <section id="scr-login" class="scr on">
+      <div class="login">
+        <h2>Connect to GitHub</h2>
+        <p>Push files and whole project folders straight from your phone.</p>
+        <ol class="steps">
+          <li>Open <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=GitMobile" target="_blank" rel="noopener">GitHub token settings</a></li>
+          <li>Keep the <b>repo</b> and <b>workflow</b> scopes checked and pick an expiration</li>
+          <li>Generate the token and paste it below</li>
+        </ol>
+        <input id="pat" class="field" type="password" placeholder="ghp_…" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button id="login-go" class="btn">Connect</button>
+        <div class="fine">The token is saved only in this browser. Fine-grained tokens work too if they have Contents and Workflows set to read and write.</div>
+      </div>
+    </section>
+
+    <section id="scr-repos" class="scr">
+      <div class="search"><input id="repo-q" class="field" type="search" placeholder="Search repositories" autocapitalize="off" autocorrect="off"></div>
+      <ul id="repo-list" class="list"></ul>
+    </section>
+
+    <section id="scr-browser" class="scr">
+      <div id="crumbbar"></div>
+      <div id="br-body"></div>
+    </section>
+
+    <section id="scr-file" class="scr"><div class="pad" id="file-body"></div></section>
+
+    <section id="scr-editor" class="scr">
+      <div class="findbar" id="ed-find" hidden>
+        <div class="fr"><input id="fd-q" placeholder="Find" autocapitalize="off" autocorrect="off" spellcheck="false"><span class="cnt2" id="fd-count"></span>
+          <button class="key" id="fd-prev" aria-label="Previous match">‹</button><button class="key" id="fd-next" aria-label="Next match">›</button></div>
+        <div class="fr"><input id="fd-r" placeholder="Replace with" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <button class="mini" id="fd-one">Replace</button><button class="mini" id="fd-all">All</button><button class="mini" id="fd-close">Done</button></div>
+      </div>
+      <div class="code">
+        <div class="gutter"><div class="layer" id="ed-glayer"><div class="aline" id="ed-galine"></div><pre id="ed-gut">1</pre></div></div>
+        <div class="cview">
+          <div class="layer" id="ed-layer"><div class="aline" id="ed-aline"></div><div class="fmark" id="ed-fmark" hidden></div><pre id="ed-hl" aria-hidden="true"></pre></div>
+          <textarea id="ed-text" wrap="off" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off"></textarea>
+        </div>
+      </div>
+      <div class="keybar" id="ed-keys"></div>
+    </section>
+
+    <section id="scr-actions" class="scr"><ul id="actions-list" class="list"></ul></section>
+    <section id="scr-run" class="scr"><div class="pad" id="run-body"></div></section>
+
+    <section id="scr-newrepo" class="scr"><div class="pad" id="newrepo-body"></div></section>
+    <section id="scr-pages" class="scr"><div class="pad" id="pages-body"></div></section>
+
+    <section id="scr-diff" class="scr"><div class="pad" id="diff-body"></div></section>
+    <section id="scr-releases" class="scr"><div class="pad" id="rel-body"></div></section>
+    <section id="scr-relnew" class="scr"><div class="pad" id="relnew-body"></div></section>
+
+    <section id="scr-stage" class="scr"><div class="pad" id="stage-body"></div></section>
+  </main>
+</div>
+<button id="fab" hidden></button>
+<div id="selbar" hidden></div>
+<div id="backdrop"></div>
+<div id="sheet"></div>
+<div id="modal" hidden></div>
+<div id="toast"></div>
+
+<input type="file" id="in-files" multiple hidden>
+<input type="file" id="in-folder" multiple webkitdirectory hidden>
+<input type="file" id="in-zip" accept=".zip,application/zip" multiple hidden>
+<input type="file" id="in-replace" hidden>
+
+<script>
+'use strict';
+const API = 'https://api.github.com';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const encPath = p => p.split('/').map(encodeURIComponent).join('/');
+const baseName = p => p.split('/').pop();
+const dirName = p => p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
+const normPath = p => (p || '').split('/').map(s => s.trim()).filter(s => s && s !== '.').join('/');
+const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+const lsSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
+
+const S = {
+  token: lsGet('github_pat'), user: null, scopes: null, repos: [],
+  repo: null, branch: null, headSha: null, tree: [], byPath: new Map(), truncated: false, empty: false,
+  path: '', commits: new Map(), actions: { sha: null, runs: [], seen: new Map(), fresh: 0, t: null }, pagesUrl: null, pagesT: null, pagesForm: null, runId: null, runT: null, screen: 'login', file: null, edit: null, stage: null
+};
+
+/* ---------- Icons ---------- */
+const I = {
+  back: '<path d="M15 18l-6-6 6-6"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
+  code: '<path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/>',
+  text: '<path d="M5 6h14M5 11h14M5 16h9"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>',
+  branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-6 4-12 8"/>',
+  more: '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  repo: '<path d="M5 19V5a2 2 0 0 1 2-2h12v15H7a2 2 0 0 0-2 2 2 2 0 0 0 2 2h12"/>',
+  sub: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8M12 8v8"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+  zip: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M11 4v2M11 8v2M11 12v2"/>',
+  logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  download: '<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
+  link: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  move: '<path d="M4 12h16M14 6l6 6-6 6"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  swap: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
+  newfolder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6M9 13h6"/>',
+  newfile: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M12 11v6M9 14h6"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  x: '<path d="M7 7l10 10M17 7L7 17"/>',
+  skip: '<path d="M6 12h12"/>',
+  clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+  play: '<circle cx="12" cy="12" r="9"/><path d="M10 8.5l5.5 3.5-5.5 3.5z"/>',
+  rerun: '<path d="M4 12a8 8 0 0 1 13.7-5.7L20 9M20 4v5h-5M20 12a8 8 0 0 1-13.7 5.7L4 15M4 20v-5h5"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  chevron: '<path d="M8 10l4 4 4-4"/>',
+  tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>',
+  bolt: '<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  left: '<path d="M14 6l-6 6 6 6"/>',
+  right: '<path d="M10 6l6 6-6 6"/>',
+  outdent: '<path d="M20 6H10M20 12H12M20 18H10M7 9l-3 3 3 3"/>',
+  indent: '<path d="M20 6H10M20 12H12M20 18H10M4 9l3 3-3 3"/>'
+};
+const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
+$('#btn-back').innerHTML = ic('back');
+$('#fab').innerHTML = ic('plus') + '<span>Add</span>';
+
+const EXT_COLORS = { js:'#d4a82a', mjs:'#d4a82a', ts:'#3b7bd6', html:'#e0703a', htm:'#e0703a', css:'#4b8be0', json:'#3aa86b',
+  md:'#8a96a8', txt:'#8a96a8', png:'#9a6bd8', jpg:'#9a6bd8', jpeg:'#9a6bd8', gif:'#9a6bd8', webp:'#9a6bd8', svg:'#d0629b', ico:'#9a6bd8',
+  zip:'#a0763a', wav:'#2fa3a3', mp3:'#2fa3a3', ogg:'#2fa3a3' };
+const IMG_MIME = { png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif', webp:'image/webp', svg:'image/svg+xml', ico:'image/x-icon', bmp:'image/bmp' };
+const extOf = p => { const n = baseName(p); const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : ''; };
+function fileIcon(p) {
+  const x = extOf(p);
+  const kind = IMG_MIME[x] ? 'image' : x === 'zip' ? 'zip' : ['js','mjs','ts','html','htm','css','json','py','sh','glsl'].includes(x) ? 'code' : ['md','txt'].includes(x) ? 'text' : 'file';
+  const color = EXT_COLORS[x];
+  return `<span class="ico" ${color ? `style="color:${color};background:color-mix(in srgb,${color} 15%,transparent)"` : ''}>${ic(kind)}</span>`;
+}
+
+/* ---------- Utilities ---------- */
+function fmtSize(n) {
+  if (n == null) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
+  return (n / 1048576).toFixed(1) + ' MB';
+}
+function timeAgo(iso) {
+  if (!iso) return '';
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  if (s < 60) return 'just now';
+  const units = [[31536000,'year'],[2592000,'month'],[604800,'week'],[86400,'day'],[3600,'hour'],[60,'min']];
+  for (const [sec, name] of units) if (s >= sec) { const v = Math.floor(s / sec); return `${v} ${name}${v > 1 ? 's' : ''} ago`; }
+}
+const fmtDate = iso => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+function bytesToB64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+function b64ToBytes(b64) { const s = atob(b64.replace(/\s/g, '')); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+async function gitSha(bytes) {
+  const head = new TextEncoder().encode(`blob ${bytes.length}\0`);
+  const all = new Uint8Array(head.length + bytes.length); all.set(head); all.set(bytes, head.length);
+  const h = await crypto.subtle.digest('SHA-1', all);
+  return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function pool(items, n, fn) {
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const it = items[i++]; await fn(it); } }));
+}
+function isBinary(bytes, path) {
+  if (IMG_MIME[extOf(path)] && extOf(path) !== 'svg') return true;
+  const n = Math.min(bytes.length, 8000);
+  for (let i = 0; i < n; i++) if (bytes[i] === 0) return true;
+  return false;
+}
+// iOS file pickers hide anything starting with a dot, so these stand-in names get renamed on upload
+const DOT_ALIASES = ['_github', '_gitignore', '_gitattributes', '_nojekyll', '_editorconfig', '_vscode', '_well-known'];
+const undot = rel => rel.split('/').map(s => DOT_ALIASES.includes(s) ? '.' + s.slice(1) : s).join('/');
+const JUNK = /(^|\/)(\.DS_Store|Thumbs\.db|desktop\.ini|\._[^/]*)$|(^|\/)(__MACOSX|\.git)\//;
+
+/* ---------- UI helpers ---------- */
+let toastT;
+function toast(msg, type = '') {
+  const t = $('#toast'); t.textContent = msg; t.className = 'on ' + type;
+  clearTimeout(toastT); toastT = setTimeout(() => t.className = type, type === 'err' ? 5000 : 2800);
+}
+function setHeader(title, sub = '', acts = []) {
+  $('#h-title').textContent = title; $('#h-sub').textContent = sub;
+  const box = $('#h-actions'); box.innerHTML = '';
+  acts.forEach(a => { const b = document.createElement('button'); b.className = 'hbtn'; b.setAttribute('aria-label', a.label); b.innerHTML = ic(a.icon); b.onclick = a.fn; box.appendChild(b); });
+}
+function go(name) {
+  document.querySelectorAll('.scr').forEach(s => s.classList.toggle('on', s.id === 'scr-' + name));
+  S.screen = name;
+  $('#btn-back').hidden = name === 'login' || name === 'repos';
+  if (name !== 'browser') S.sel = null;
+  $('#fab').hidden = name !== 'browser' || !!S.sel;
+  $('#selbar').hidden = name !== 'browser' || !S.sel;
+  $('#main').classList.toggle('flush', name === 'editor');
+  $('#main').scrollTop = 0;
+}
+const loadingHTML = t => `<div class="loading"><div class="spin"></div>${esc(t)}</div>`;
+
+function openSheet(html) { $('#sheet').innerHTML = '<div class="grab"></div>' + html; $('#sheet').classList.add('on'); $('#backdrop').classList.add('on'); }
+function closeSheet() { $('#sheet').classList.remove('on'); $('#backdrop').classList.remove('on'); }
+$('#backdrop').onclick = () => { closeSheet(); const f = S.onSheetDismiss; S.onSheetDismiss = null; if (f) f(); };
+function sheetMenu(title, items) {
+  openSheet((title ? `<div class="sh-title">${esc(title)}</div>` : '') + items.map((it, i) =>
+    `<button class="sh-item ${it.danger ? 'danger' : ''} ${it.sel ? 'sel' : ''}" data-i="${i}">${it.icon ? ic(it.icon) : ''}<span>${esc(it.label)}${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span></button>`).join(''));
+  $('#sheet').querySelectorAll('.sh-item').forEach(b => b.onclick = () => { closeSheet(); items[+b.dataset.i].fn(); });
+}
+function ask({ title, message = '', input, ok = 'OK', danger = false, placeholder = '' }) {
+  return new Promise(resolve => {
+    const m = $('#modal');
+    m.innerHTML = `<div class="dlg"><h3>${esc(title)}</h3>${message ? `<p>${esc(message)}</p>` : ''}
+      ${input !== undefined ? `<input class="field" id="dlg-in" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${esc(placeholder)}">` : ''}
+      <div class="row2"><button class="btn ghost" id="dlg-no">Cancel</button><button class="btn ${danger ? 'danger' : ''}" id="dlg-ok">${esc(ok)}</button></div></div>`;
+    m.hidden = false;
+    const inp = $('#dlg-in');
+    if (inp) { inp.value = input; setTimeout(() => inp.focus(), 50); inp.onkeydown = e => { if (e.key === 'Enter') done(true); }; }
+    function done(yes) { m.hidden = true; resolve(yes ? (inp ? inp.value : true) : null); }
+    $('#dlg-no').onclick = () => done(false);
+    $('#dlg-ok').onclick = () => done(true);
+  });
+}
+function copyText(t) { navigator.clipboard?.writeText(t).then(() => toast('Copied'), () => toast('Could not copy', 'err')); }
+
+/* ---------- GitHub API ---------- */
+async function gh(ep, opts = {}, attempt = 0) {
+  const headers = { Authorization: `Bearer ${S.token}`, Accept: 'application/vnd.github+json', ...(opts.body ? { 'Content-Type': 'application/json' } : {}) };
+  let res;
+  try { res = await fetch(ep.startsWith('http') ? ep : API + ep, { cache: 'no-store', ...opts, headers }); }
+  catch (netErr) {
+    // Dropped connection (iPhone switched networks, Safari paused the tab): try a few times
+    if (attempt < 4) { await waitFor(3 * (attempt + 1), 'Connection dropped, retrying'); return gh(ep, opts, attempt + 1); }
+    throw new Error('Network connection lost. Check your signal and tap Push again; finished parts are kept.');
+  }
+  if (!res.ok) {
+    let m = `HTTP ${res.status}`;
+    try { const j = await res.json(); m = j.message || m; } catch {}
+    const ra = +res.headers.get('retry-after') || 0;
+    const secondary = (res.status === 403 || res.status === 429) && (ra || /secondary rate|abuse|too many/i.test(m));
+    const primary = res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0';
+    const transient = [500, 502, 503, 504].includes(res.status);
+    if ((secondary || transient) && attempt < 6) {
+      // GitHub limits how fast new content can be created; it says how long to wait
+      const wait = ra || (secondary ? 60 * (attempt + 1) : 4 * (attempt + 1));
+      await waitFor(Math.min(wait, 300), secondary ? 'GitHub asked to slow down' : 'GitHub hiccup');
+      return gh(ep, opts, attempt + 1);
+    }
+    if (primary) {
+      const reset = +res.headers.get('x-ratelimit-reset');
+      const mins = reset ? Math.max(1, Math.ceil((reset * 1000 - Date.now()) / 60000)) : null;
+      m = `GitHub's hourly limit is used up${mins ? `; it resets in about ${mins} min` : ''}. Finished parts are kept, so tap Push again after that.`;
+    }
+    const e = new Error(m); e.status = res.status; throw e;
+  }
+  const txt = await res.text();
+  return txt ? JSON.parse(txt) : null;
+}
+// Countdown shown through whatever progress reporter is active
+async function waitFor(sec, why) {
+  for (let t = Math.ceil(sec); t > 0; t--) { if (S.onWait) S.onWait(`${why}. Continuing in ${t}s…`); await new Promise(r => setTimeout(r, 1000)); }
+}
+async function gql(query, variables) {
+  const j = await gh('/graphql', { method: 'POST', body: JSON.stringify({ query, variables }) });
+  if (j.errors && !j.data) throw new Error(j.errors[0].message);
+  return j.data;
+}
+const R = () => `/repos/${S.repo.full_name}`;
+const isWorkflow = p => /^\.github\/workflows\//.test(p);
+const lacksWorkflowScope = () => Array.isArray(S.scopes) && !S.scopes.includes('workflow');
+const WORKFLOW_HELP = 'Files in .github/workflows need a token with the workflow scope. Edit your token on GitHub, check “workflow”, then sign out and back in here.';
+function friendlyError(err) {
+  return /workflow/i.test(err.message) ? WORKFLOW_HELP : err.message;
+}
+
+/* ---------- Auth ---------- */
+async function auth(t, silent) {
+  S.token = t;
+  try {
+    const res = await fetch(API + '/user', { cache: 'no-store', headers: { Authorization: `Bearer ${t}`, Accept: 'application/vnd.github+json' } });
+    if (!res.ok) { let m = `HTTP ${res.status}`; try { m = (await res.json()).message || m; } catch {} const e = new Error(m); e.status = res.status; throw e; }
+    S.user = await res.json();
+    // Classic tokens report their scopes; fine-grained tokens don't (null = unknown)
+    const sc = res.headers.get('x-oauth-scopes');
+    S.scopes = sc == null ? null : sc.split(',').map(x => x.trim()).filter(Boolean);
+    lsSet('github_pat', t); return true;
+  }
+  catch (e) {
+    if (e.status === 401) { S.token = ''; lsSet('github_pat', ''); }
+    if (!silent || e.status !== 401) toast('Could not connect: ' + e.message, 'err');
+    return false;
+  }
+}
+$('#login-go').onclick = async () => {
+  const t = $('#pat').value.trim();
+  if (!t) return toast('Paste a token first', 'err');
+  const b = $('#login-go'); b.disabled = true; b.innerHTML = '<div class="spin"></div>Connecting';
+  if (await auth(t)) { $('#pat').value = ''; showRepos(true); toast(`Signed in as ${S.user.login}`, 'ok'); }
+  b.disabled = false; b.textContent = 'Connect';
+};
+$('#pat').onkeydown = e => { if (e.key === 'Enter') $('#login-go').click(); };
+function logout() {
+  lsSet('github_pat', ''); Object.assign(S, { token: '', user: null, repos: [], repo: null });
+  go('login'); setHeader('GitMobile');
+}
+
+/* ---------- Repositories ---------- */
+function showRepos(reload) {
+  stopActions();
+  go('repos');
+  setHeader('Repositories', S.user ? S.user.login + (lacksWorkflowScope() ? ' (no workflow scope)' : '') : '', [
+    { icon: 'bolt', label: 'Quick push', fn: quickMenu },
+    { icon: 'plus', label: 'New repository', fn: showNewRepo },
+    { icon: 'refresh', label: 'Refresh', fn: () => loadRepos() },
+    { icon: 'logout', label: 'Sign out', fn: async () => { if (await ask({ title: 'Sign out?', message: 'The saved token will be removed from this browser.', ok: 'Sign out', danger: true })) logout(); } }
+  ]);
+  if (reload || !S.repos.length) loadRepos(); else renderRepos();
+}
+async function loadRepos() {
+  $('#repo-list').innerHTML = loadingHTML('Loading repositories');
+  try {
+    const all = [];
+    for (let page = 1; page <= 5; page++) {
+      const r = await gh(`/user/repos?sort=pushed&per_page=100&page=${page}`);
+      all.push(...r); if (r.length < 100) break;
+    }
+    S.repos = all; renderRepos();
+  } catch (e) { $('#repo-list').innerHTML = `<li class="empty">Couldn't load repositories: ${esc(e.message)}</li>`; }
+}
+function renderRepos() {
+  const q = $('#repo-q').value.trim().toLowerCase();
+  const list = S.repos.filter(r => !q || r.full_name.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q));
+  $('#repo-list').innerHTML = list.length ? list.map((r, i) => `
+    <li class="row" data-i="${S.repos.indexOf(r)}">
+      <span class="ico">${ic('repo')}</span>
+      <div class="rmain">
+        <div class="rname">${esc(r.name)}</div>
+        <div class="rsub"><span class="meta" style="display:flex;align-items:center;gap:4px">${ic(r.private ? 'lock' : 'globe').replace('class="i ', 'style="width:13px;height:13px" class="i ')}${r.private ? 'Private' : 'Public'}</span>
+          ${r.language ? `<span class="meta">${esc(r.language)}</span>` : ''}<span class="cmsg">${esc(r.owner.login !== S.user?.login ? r.owner.login : '')}</span></div>
+      </div>
+      <div class="rtime">${timeAgo(r.pushed_at || r.updated_at)}</div>
+    </li>`).join('') : `<li class="empty">${q ? 'No repositories match that search.' : 'No repositories yet.'}</li>`;
+}
+$('#repo-q').oninput = renderRepos;
+$('#repo-list').onclick = e => { const row = e.target.closest('.row'); if (row) openRepo(S.repos[+row.dataset.i]); };
+
+/* ---------- Repo tree ---------- */
+async function openRepo(repo, branch) {
+  S.repo = repo; S.branch = branch || repo.default_branch || 'main'; S.path = '';
+  go('browser'); setBrowserHeader();
+  $('#crumbbar').innerHTML = ''; $('#br-body').innerHTML = loadingHTML('Loading files');
+  S.pagesUrl = null; stopActions();
+  try { await loadTree(); renderBrowser(); watchActions(false); loadPagesUrl(); return true; }
+  catch (e) { $('#br-body').innerHTML = `<div class="empty">Couldn't load this repository: ${esc(e.message)}</div>`; return false; }
+}
+async function loadTree() {
+  try {
+    const ref = await gh(`${R()}/git/ref/heads/${encPath(S.branch)}`);
+    S.headSha = ref.object.sha; S.empty = false;
+    const commit = await gh(`${R()}/git/commits/${S.headSha}`);
+    const t = await gh(`${R()}/git/trees/${commit.tree.sha}?recursive=1`);
+    S.tree = t.tree; S.truncated = !!t.truncated;
+  } catch (e) {
+    if (e.status === 409 || (e.status === 404 && S.repo.size === 0)) { S.empty = true; S.tree = []; S.headSha = null; S.truncated = false; }
+    else throw e;
+  }
+  S.byPath = new Map(S.tree.map(x => [x.path, x]));
+  if (S.path && S.byPath.get(S.path)?.type !== 'tree') S.path = '';
+}
+async function refresh() {
+  $('#br-body').style.opacity = .5;
+  try { await loadTree(); watchActions(false); } catch (e) { toast('Refresh failed: ' + e.message, 'err'); }
+  $('#br-body').style.opacity = '';
+  if (S.screen === 'browser') renderBrowser();
+}
+function children(path) {
+  const pre = path ? path + '/' : '';
+  return S.tree.filter(e => e.path.startsWith(pre) && e.path.length > pre.length && !e.path.slice(pre.length).includes('/'));
+}
+function folderStats(path) {
+  const pre = path + '/'; let count = 0, size = 0;
+  for (const e of S.tree) if (e.path.startsWith(pre)) {
+    if (e.type === 'blob') size += e.size || 0;
+    if (!e.path.slice(pre.length).includes('/')) count++;
+  }
+  return { count, size };
+}
+const blobsUnder = path => S.tree.filter(e => e.type !== 'tree' && e.path.startsWith(path + '/'));
+
+/* Last-commit info: one GraphQL request per folder, REST fallback */
+const ck = p => `${S.headSha}:${p}`;
+async function loadCommitInfo(paths) {
+  if (!S.headSha) return;
+  const need = [...new Set(paths)].filter(p => !S.commits.has(ck(p)));
+  if (!need.length) return;
+  need.forEach(p => S.commits.set(ck(p), null));
+  const set = (p, n) => S.commits.set(ck(p), n || { none: true });
+  try {
+    for (let i = 0; i < need.length; i += 40) {
+      const chunk = need.slice(i, i + 40);
+      const fields = chunk.map((p, j) => `h${j}: history(first: 1${p ? `, path: ${JSON.stringify(p)}` : ''}) { nodes { oid committedDate messageHeadline url author { name user { login } } } }`).join('\n');
+      const d = await gql(`query($o:String!,$n:String!,$r:String!){ repository(owner:$o,name:$n){ object(expression:$r){ ... on Commit { ${fields} } } } }`,
+        { o: S.repo.owner.login, n: S.repo.name, r: S.headSha });
+      const obj = d.repository && d.repository.object;
+      chunk.forEach((p, j) => { const n = obj && obj['h' + j] && obj['h' + j].nodes[0];
+        set(p, n && { sha: n.oid, date: n.committedDate, msg: n.messageHeadline, url: n.url, author: n.author?.user?.login || n.author?.name }); });
+      paintCommits();
+    }
+  } catch {
+    const left = need.filter(p => !S.commits.get(ck(p)));
+    await pool(left, 3, async p => {
+      try {
+        const c = await gh(`${R()}/commits?sha=${S.headSha}&per_page=1${p ? `&path=${encodeURIComponent(p)}` : ''}`);
+        const x = c[0];
+        set(p, x && { sha: x.sha, date: x.commit.committer.date, msg: x.commit.message.split('\n')[0], url: x.html_url, author: x.author?.login || x.commit.author.name });
+      } catch { set(p); }
+      paintCommits();
+    });
+  }
+}
+function paintCommits() {
+  document.querySelectorAll('[data-cp]').forEach(el => {
+    const c = S.commits.get(ck(el.dataset.cp)); if (!c || c.none) return;
+    const k = el.dataset.k;
+    if (k === 'time') el.textContent = timeAgo(c.date);
+    else if (k === 'msg') el.textContent = c.msg;
+    else if (k === 'latest') {
+      el.innerHTML = `<div class="m">${esc(c.msg)}</div><div class="s"><span>${esc(c.author || '')}</span><span>${timeAgo(c.date)}</span><span class="sha">${c.sha.slice(0, 7)}</span></div>`;
+      el.onclick = () => c.url && window.open(c.url, '_blank');
+    }
+  });
+  if (S.screen === 'file' && S.file) renderFileMeta();
+}
+
+/* ---------- Browser ---------- */
+function setBrowserHeader() {
+  setHeader(S.repo.name, S.repo.owner.login, [{ icon: 'globe', label: 'GitHub Pages', fn: showPages }, { icon: 'play', label: 'Actions', fn: showActions }, { icon: 'refresh', label: 'Refresh', fn: refresh }]);
+}
+function showBrowser() { go('browser'); setBrowserHeader(); renderBrowser(); }
+function renderBrowser() {
+  const p = S.path, segs = p ? p.split('/') : [];
+  let cb = `<button class="chip" id="br-branch">${ic('branch')}<span>${esc(S.branch)}</span></button><nav class="crumbs" id="crumbs"><button data-p="">${esc(S.repo.name)}</button>`;
+  segs.forEach((s, i) => { cb += `<span class="sep">/</span><button data-p="${esc(segs.slice(0, i + 1).join('/'))}">${esc(s)}</button>`; });
+  if (S.sel && S.selPath !== S.path) S.sel = null; // selection belongs to one folder
+  $('#crumbbar').innerHTML = cb + `</nav>${S.empty ? '' : `<button class="hbtn" id="br-select" aria-label="Select files" style="width:auto;padding:0 8px;font-size:14px;font-weight:600;color:var(--accent)">${S.sel ? 'Done' : 'Select'}</button>`}<button class="hbtn" id="br-tools" aria-label="Repository tools">${ic('more')}</button>`;
+  if ($('#br-select')) $('#br-select').onclick = () => S.sel ? endSelect() : startSelect();
+  $('#br-tools').onclick = repoTools;
+  $('#br-branch').onclick = pickBranch;
+  $('#crumbs').querySelectorAll('button').forEach(b => b.onclick = () => { S.path = b.dataset.p; renderBrowser(); $('#main').scrollTop = 0; });
+  $('#crumbs').scrollLeft = 9999;
+
+  if (S.empty) { $('#br-body').innerHTML = `<div class="empty" style="padding-top:60px">This repository is empty.<br>Tap Add to upload your project and make the first commit.</div>`; return; }
+  const kids = children(p).sort((a, b) => (a.type === 'tree' ? 0 : 1) - (b.type === 'tree' ? 0 : 1) || baseName(a.path).localeCompare(baseName(b.path), undefined, { numeric: true, sensitivity: 'base' }));
+  let html = S.truncated ? `<div class="warn">This repository is very large, so some folders may be missing from the list.</div>` : '';
+  html = `<div id="act-strip"></div>` + html;
+  html += `<button class="latest" data-cp="${esc(p)}" data-k="latest"><div class="m" style="color:var(--muted)">Loading latest commit…</div></button>`;
+  html += kids.length ? `<ul class="list ${S.sel ? 'selecting' : ''}" id="br-list">${kids.map((e, i) => {
+    const dir = e.type === 'tree', sub = e.type === 'commit';
+    let meta;
+    if (dir) { const st = folderStats(e.path); meta = `${st.count} item${st.count === 1 ? '' : 's'}, ${fmtSize(st.size)}`; }
+    else meta = sub ? 'Submodule' : fmtSize(e.size);
+    const on = S.sel && S.sel.has(e.path);
+    return `<li class="row ${on ? 'sel' : ''}" data-i="${i}">
+      ${S.sel ? `<span class="chk">${on ? ic('check') : ''}</span>` : ''}
+      ${dir ? `<span class="ico dir">${ic('folder')}</span>` : sub ? `<span class="ico">${ic('sub')}</span>` : fileIcon(e.path)}
+      <div class="rmain"><div class="rname">${esc(baseName(e.path))}</div>
+        <div class="rsub"><span class="meta">${meta}</span><span class="cmsg" data-cp="${esc(e.path)}" data-k="msg"></span></div></div>
+      <div class="rtime" data-cp="${esc(e.path)}" data-k="time"></div>
+      <button class="more" aria-label="Actions">${ic('more')}</button></li>`;
+  }).join('')}</ul>` : `<div class="empty">This folder is empty.</div>`;
+  $('#br-body').innerHTML = html;
+  renderActionStrip();
+  const list = $('#br-list');
+  S.kids = kids;
+  if (list) {
+    list.onclick = ev => {
+      const row = ev.target.closest('.row'); if (!row) return;
+      if (S.lpFired) { S.lpFired = false; return; }
+      const e = kids[+row.dataset.i];
+      if (S.sel) toggleSel(e.path);
+      else if (ev.target.closest('.more')) entryActions(e); else openEntry(e);
+    };
+    // Press and hold a row to start selecting with it
+    let lp, sx, sy;
+    list.addEventListener('touchstart', ev => {
+      const row = ev.target.closest('.row'); if (!row || S.sel || ev.target.closest('.more')) return;
+      sx = ev.touches[0].clientX; sy = ev.touches[0].clientY;
+      lp = setTimeout(() => { S.lpFired = true; startSelect(kids[+row.dataset.i].path); if (navigator.vibrate) navigator.vibrate(10); }, 450);
+    }, { passive: true });
+    list.addEventListener('touchmove', ev => { if (lp && (Math.abs(ev.touches[0].clientX - sx) > 8 || Math.abs(ev.touches[0].clientY - sy) > 8)) { clearTimeout(lp); lp = null; } }, { passive: true });
+    list.addEventListener('touchend', () => { clearTimeout(lp); lp = null; setTimeout(() => { S.lpFired = false; }, 400); });
+    list.addEventListener('contextmenu', ev => { if (ev.target.closest('.row')) ev.preventDefault(); });
+  }
+  updateSelBar();
+  paintCommits();
+  loadCommitInfo([p, ...kids.map(k => k.path)]);
+}
+function openEntry(e) {
+  if (e.type === 'tree') { S.path = e.path; renderBrowser(); $('#main').scrollTop = 0; }
+  else if (e.type === 'commit') toast('This is a submodule. Open it from its own repository.');
+  else showFile(e);
+}
+async function pickBranch() {
+  openSheet(loadingHTML('Loading branches'));
+  try {
+    const bs = await gh(`${R()}/branches?per_page=100`);
+    sheetMenu('Switch branch', bs.map(b => ({ label: b.name, icon: 'branch', sel: b.name === S.branch, fn: () => openRepo(S.repo, b.name) })));
+  } catch (e) { closeSheet(); toast(S.empty ? 'An empty repository has no branches yet' : 'Could not load branches: ' + e.message, 'err'); }
+}
+const ghUrl = e => `https://github.com/${S.repo.full_name}/${e.type === 'tree' ? 'tree' : 'blob'}/${encPath(S.branch)}/${encPath(e.path)}`;
+function entryActions(e) {
+  const dir = e.type === 'tree';
+  sheetMenu(e.path, [
+    !dir && { label: 'Open', icon: 'file', fn: () => showFile(e) },
+    { label: 'Details', icon: 'info', fn: () => detailsSheet(e) },
+    dir && { label: 'Upload into this folder', icon: 'upload', fn: () => { S.path = e.path; renderBrowser(); addMenu(); } },
+    dir && { label: 'Download as ZIP', icon: 'download', fn: () => downloadZip(e.path) },
+    { label: 'Move to folder…', icon: 'folder', fn: () => moveItems([e]) },
+    { label: 'Rename', icon: 'move', fn: () => renameEntry(e) },
+    { label: 'Copy path', icon: 'copy', fn: () => copyText(e.path) },
+    { label: 'Open on GitHub', icon: 'link', fn: () => window.open(ghUrl(e), '_blank') },
+    { label: dir ? 'Delete folder' : 'Delete file', icon: 'trash', danger: true, fn: () => deleteEntry(e) }
+  ].filter(Boolean));
+}
+function metaRows(e) {
+  const c = S.commits.get(ck(e.path));
+  const rows = [['Path', `<span class="mono">${esc(e.path)}</span>`]];
+  if (e.type === 'tree') { const st = folderStats(e.path); rows.push(['Contains', `${st.count} items, ${fmtSize(st.size)} total`], ['Files inside', String(blobsUnder(e.path).length)]); }
+  else rows.push(['Size', `${fmtSize(e.size)} <span style="color:var(--muted)">(${(e.size ?? 0).toLocaleString()} bytes)</span>`]);
+  if (c && !c.none) rows.push(['Updated', `${fmtDate(c.date)}<br><span style="color:var(--muted)">${timeAgo(c.date)}</span>`], ['Last commit', esc(c.msg)], ['By', esc(c.author || '')], ['Commit', `<span class="mono">${c.sha.slice(0, 7)}</span>`]);
+  else if (c === null || c === undefined) rows.push(['Updated', '<span style="color:var(--muted)">Loading…</span>']);
+  if (e.type === 'blob') rows.push(['Blob SHA', `<span class="mono">${e.sha.slice(0, 12)}</span>`], ['Mode', `<span class="mono">${e.mode}${e.mode === '100755' ? ' (executable)' : ''}</span>`]);
+  return `<dl class="meta">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`;
+}
+function detailsSheet(e) {
+  openSheet(`<div class="sh-title">${esc(baseName(e.path))}</div><div id="det">${metaRows(e)}</div>`);
+  if (!S.commits.get(ck(e.path))) loadCommitInfo([e.path]).then(() => { const d = $('#det'); if (d) d.innerHTML = metaRows(e); });
+}
+
+/* ---------- File screen ---------- */
+async function showFile(entry) {
+  S.file = { entry, bytes: null, text: null, binary: false, url: null };
+  go('file'); setHeader(baseName(entry.path), dirName(entry.path) || S.repo.name);
+  renderFile();
+  loadCommitInfo([entry.path]);
+  try {
+    const b = await gh(`${R()}/git/blobs/${entry.sha}`);
+    const bytes = b64ToBytes(b.content);
+    if (S.file?.entry !== entry) return;
+    S.file.bytes = bytes; S.file.binary = isBinary(bytes, entry.path);
+    if (!S.file.binary) S.file.text = new TextDecoder().decode(bytes);
+    const mime = IMG_MIME[extOf(entry.path)];
+    if (mime) S.file.url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+  } catch (err) { if (S.file) S.file.error = err.message; }
+  if (S.file?.entry === entry && S.screen === 'file') renderFile();
+}
+function renderFile() {
+  const f = S.file, e = f.entry;
+  let preview;
+  if (f.error) preview = `<div class="note">Couldn't load the file: ${esc(f.error)}</div>`;
+  else if (!f.bytes) preview = loadingHTML('Loading file');
+  else if (f.url) preview = `<img src="${f.url}" alt="${esc(baseName(e.path))}">`;
+  else if (f.binary) preview = `<div class="note">Binary file, no preview. You can download or replace it.</div>`;
+  else {
+    const t = f.text.length > 200000 ? f.text.slice(0, 200000) + '\n\n… preview truncated' : f.text;
+    preview = t.length ? `<pre>${esc(t)}</pre>` : `<div class="note">Empty file</div>`;
+  }
+  const canEdit = f.bytes && !f.binary;
+  $('#file-body').innerHTML = `
+    <div class="card preview">${preview}</div>
+    <div class="actions">
+      ${canEdit ? `<button class="act primary" data-a="edit">${ic('edit')}Edit</button>` : ''}
+      <button class="act" data-a="history">${ic('history')}History</button>
+      <button class="act" data-a="replace">${ic('swap')}Replace</button>
+      <button class="act" data-a="download">${ic('download')}Download</button>
+      <button class="act" data-a="move">${ic('move')}Rename or move</button>
+      <button class="act" data-a="github">${ic('link')}GitHub</button>
+      <button class="act danger" data-a="delete">${ic('trash')}Delete</button>
+    </div>
+    <div class="sec">Details</div>
+    <div class="card" id="file-meta">${metaRows(e)}</div>`;
+  $('#file-body').querySelectorAll('.act').forEach(b => b.onclick = () => fileAction(b.dataset.a));
+}
+function renderFileMeta() { const m = $('#file-meta'); if (m && S.file) m.innerHTML = metaRows(S.file.entry); }
+function reshowFile() { go('file'); setHeader(baseName(S.file.entry.path), dirName(S.file.entry.path) || S.repo.name); renderFile(); }
+function fileAction(a) {
+  const e = S.file.entry;
+  if (a === 'edit') openEditor(e.path, S.file.text, false);
+  else if (a === 'history') historySheet(e.path);
+  else if (a === 'replace') { $('#in-replace').value = ''; $('#in-replace').click(); }
+  else if (a === 'download') {
+    if (!S.file.bytes) return toast('Still loading');
+    const url = URL.createObjectURL(new Blob([S.file.bytes], { type: IMG_MIME[extOf(e.path)] || 'application/octet-stream' }));
+    const aEl = document.createElement('a'); aEl.href = url; aEl.download = baseName(e.path); document.body.appendChild(aEl); aEl.click(); aEl.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+  else if (a === 'move') renameEntry(e);
+  else if (a === 'github') window.open(ghUrl(e), '_blank');
+  else if (a === 'delete') deleteEntry(e);
+}
+async function historySheet(path) {
+  openSheet(loadingHTML('Loading history'));
+  try {
+    const cs = await gh(`${R()}/commits?sha=${encodeURIComponent(S.branch)}&path=${encodeURIComponent(path)}&per_page=30`);
+    sheetMenu(`History of ${baseName(path)}`, cs.map(c => ({
+      label: c.commit.message.split('\n')[0], icon: 'history',
+      sub: `${c.author?.login || c.commit.author.name}, ${fmtDate(c.commit.committer.date)}, ${c.sha.slice(0, 7)}`,
+      fn: () => showVersion(path, c)
+    })));
+  } catch (e) { closeSheet(); toast('Could not load history: ' + e.message, 'err'); }
+}
+$('#in-replace').onchange = async ev => {
+  const file = ev.target.files[0]; if (!file || !S.file) return;
+  const e = S.file.entry;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (await gitSha(bytes) === e.sha) return toast('That file is identical to the one in the repo');
+  if (!await ask({ title: `Replace ${baseName(e.path)}?`, message: `With “${file.name}” (${fmtSize(bytes.length)}). The file keeps its current name and location.`, ok: 'Replace' })) return;
+  await runCommit([{ path: e.path, bytes, mode: e.mode }], `Update ${baseName(e.path)}`, e.path);
+};
+
+/* ---------- Editor (native textarea over a highlighted layer) ---------- */
+const sp = (c, t) => `<span class="t-${c}">${esc(t)}</span>`;
+function tokenizer(rules) {
+  const re = new RegExp(rules.map(r => `(${r[0].source})`).join('|'), 'gm');
+  return text => {
+    let out = '', last = 0, m; re.lastIndex = 0;
+    while ((m = re.exec(text))) {
+      if (!m[0]) { re.lastIndex++; continue; }
+      let k = 1; while (m[k] === undefined) k++;
+      out += esc(text.slice(last, m.index)) + sp(rules[k - 1][1], m[0]);
+      last = re.lastIndex;
+    }
+    return out + esc(text.slice(last));
+  };
+}
+const R_STR = /`(?:\\[\s\S]|[^`\\])*`?|'(?:\\.|[^'\\\n])*'?|"(?:\\.|[^"\\\n])*"?/;
+const HL = {
+  js: tokenizer([
+    [/\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/, 'com'], [R_STR, 'str'],
+    [/\b(?:const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|new|class|extends|import|export|from|default|async|await|try|catch|finally|throw|typeof|instanceof|in|of|this|super|yield|delete|void|static|get|set)\b/, 'kw'],
+    [/\b(?:true|false|null|undefined|NaN|Infinity)\b/, 'lit'],
+    [/\b(?:0[xX][\da-fA-F]+|\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)\b/, 'num'],
+    [/[A-Za-z_$][\w$]*(?=\s*\()/, 'fn'], [/=>|[{}()[\];,]/, 'punc']
+  ]),
+  css: tokenizer([
+    [/\/\*[\s\S]*?(?:\*\/|$)/, 'com'], [/'(?:\\.|[^'\\\n])*'?|"(?:\\.|[^"\\\n])*"?/, 'str'], [/@[\w-]+/, 'kw'],
+    [/--[\w-]+|[a-zA-Z-]+(?=\s*:(?!:)[^;{}\n]*[;}\n])/, 'key'], [/#[\da-fA-F]{3,8}\b/, 'num'],
+    [/(?<![\w-])-?\d*\.?\d+(?:px|em|rem|%|vh|vw|dvh|svh|s|ms|deg|fr|ch)?/, 'num'],
+    [/!important|\b(?:var|calc|rgba?|hsla?|min|max|clamp|url|color-mix|env)(?=\()/, 'fn'], [/[{}();,]/, 'punc']
+  ]),
+  json: tokenizer([
+    [/"(?:\\.|[^"\\\n])*"(?=\s*:)/, 'key'], [/"(?:\\.|[^"\\\n])*"?/, 'str'],
+    [/-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/, 'num'], [/\b(?:true|false|null)\b/, 'lit'], [/[{}[\],:]/, 'punc']
+  ]),
+  yaml: tokenizer([
+    [/(?<=^|\s)#[^\n]*/, 'com'], [/\$\{\{[\s\S]*?\}\}/, 'fn'], [/^[ \t]*(?:- )?[\w.\-/]+(?=:(?:\s|$))/, 'key'],
+    [/'(?:[^'\n])*'?|"(?:\\.|[^"\\\n])*"?/, 'str'], [/\b(?:true|false|null|yes|no)\b/, 'lit'], [/(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])/, 'num'], [/^[ \t]*- /, 'punc']
+  ]),
+  md: tokenizer([
+    [/```[\s\S]*?(?:```|$)/, 'str'], [/^#{1,6} [^\n]*/, 'kw'], [/`[^`\n]*`/, 'str'], [/\*\*[^*\n]+\*\*|__[^_\n]+__/, 'key'],
+    [/!?\[[^\]\n]*\]\([^)\n]*\)/, 'fn'], [/^[ \t]*(?:[-*+]|\d+\.) /, 'punc'], [/^> [^\n]*/, 'com']
+  ])
+};
+function hlTag(t) {
+  const m = /^(<\/?)([\w:.-]+)([\s\S]*?)(\/?>)?$/.exec(t); if (!m) return esc(t);
+  let out = esc(m[1]) + sp('tag', m[2]), last = 0, x;
+  const a = m[3], re = /([^\s=/>]+)(?:(\s*=\s*)("[^"]*"?|'[^']*'?|[^\s"'>]+))?/g;
+  while ((x = re.exec(a))) { out += esc(a.slice(last, x.index)) + sp('attr', x[1]) + (x[2] !== undefined ? esc(x[2]) + sp('str', x[3] || '') : ''); last = re.lastIndex; }
+  return out + esc(a.slice(last)) + (m[4] ? sp('punc', m[4]) : '');
+}
+HL.html = t => {
+  const re = /<!--[\s\S]*?(?:-->|$)|<(script|style)\b[^>]*>|<\/?[A-Za-z][^>]*>?|<![^>]*>?|&[#\w]+;/gi;
+  let out = '', last = 0, m;
+  while ((m = re.exec(t))) {
+    out += esc(t.slice(last, m.index));
+    const x = m[0];
+    if (x.startsWith('<!')) out += sp('com', x);
+    else if (x[0] === '&') out += sp('num', x);
+    else {
+      out += hlTag(x);
+      if (m[1]) { // highlight the inside of <script>/<style> with the matching language
+        const end = new RegExp(`</${m[1]}\\s*>`, 'gi'); end.lastIndex = re.lastIndex;
+        const em = end.exec(t), stop = em ? em.index : t.length;
+        out += (m[1].toLowerCase() === 'script' ? HL.js : HL.css)(t.slice(re.lastIndex, stop));
+        re.lastIndex = stop;
+      }
+    }
+    last = re.lastIndex;
+  }
+  return out + esc(t.slice(last));
+};
+const LANG = { js: 'js', mjs: 'js', cjs: 'js', jsx: 'js', ts: 'js', html: 'html', htm: 'html', svg: 'html', xml: 'html', css: 'css',
+  json: 'json', webmanifest: 'json', yml: 'yaml', yaml: 'yaml', md: 'md', markdown: 'md' };
+
+const ED = { lang: '', hl: null, big: false, raf: 0, lines: 0, cw: 7.8, dirty: false, hits: [], hit: -1 };
+const edTA = () => $('#ed-text');
+function openEditor(path, text, isNew) {
+  S.edit = { path, isNew, orig: text, mode: S.byPath.get(path)?.mode || '100644' };
+  ED.lang = LANG[extOf(path)] || ''; ED.hl = HL[ED.lang] || null; ED.big = text.length > 300000; ED.lines = 0; ED.dirty = false;
+  go('editor'); edHeader(); closeFind();
+  const ta = edTA(); ta.value = text; ta.scrollTop = 0; ta.scrollLeft = 0; edScroll();
+  measureChar(); edRender();
+  if (ED.big) toast('Large file: colors are off to keep typing fast');
+  if (isNew) setTimeout(() => ta.focus(), 100);
+}
+function edHeader() {
+  setHeader((ED.dirty ? '● ' : '') + baseName(S.edit.path), S.edit.isNew ? 'New file' : S.edit.path, [
+    { icon: 'search', label: 'Find and replace', fn: openFind }, { icon: 'check', label: 'Commit', fn: edSave }]);
+}
+function measureChar() {
+  const s = document.createElement('span'); s.textContent = 'M'.repeat(100);
+  $('#ed-hl').appendChild(s); ED.cw = s.getBoundingClientRect().width / 100 || 7.8; s.remove();
+}
+function edRender() {
+  ED.raf = 0;
+  const v = edTA().value;
+  $('#ed-hl').innerHTML = (ED.big || !ED.hl ? esc(v) : ED.hl(v)) + '\n ';
+  const n = (v.match(/\n/g) || []).length + 1;
+  if (n !== ED.lines) { ED.lines = n; let g = ''; for (let i = 1; i <= n; i++) g += i + '\n'; $('#ed-gut').textContent = g; }
+  const dirty = S.edit && v !== S.edit.orig;
+  if (dirty !== ED.dirty) { ED.dirty = dirty; edHeader(); }
+  edCaret();
+  if (!$('#ed-find').hidden && $('#fd-q').value) findCompute(false);
+}
+const edQueue = () => { if (!ED.raf) ED.raf = requestAnimationFrame(edRender); };
+function lineColOf(v, pos) {
+  const before = v.slice(0, pos), ls = before.lastIndexOf('\n') + 1;
+  const vis = before.slice(ls).replace(/\t/g, '  ').length;
+  return { line: (before.match(/\n/g) || []).length, col: pos - ls, vis };
+}
+function edCaret() {
+  if (S.screen !== 'editor') return;
+  const ta = edTA(), lc = lineColOf(ta.value, ta.selectionStart);
+  $('#ed-aline').style.top = $('#ed-galine').style.top = (10 + lc.line * 20) + 'px';
+  const pos = $('#ed-pos'); if (pos) pos.textContent = `${lc.line + 1}:${lc.col + 1}`;
+}
+function edScroll() {
+  const ta = edTA();
+  $('#ed-layer').style.transform = `translate(${-ta.scrollLeft}px,${-ta.scrollTop}px)`;
+  $('#ed-glayer').style.transform = `translateY(${-ta.scrollTop}px)`;
+}
+// Insert through the browser so native undo keeps working
+function edInsert(text) {
+  const ta = edTA(); if (document.activeElement !== ta) ta.focus();
+  let ok = false; try { ok = document.execCommand('insertText', false, text); } catch {}
+  if (!ok) { ta.setRangeText(text, ta.selectionStart, ta.selectionEnd, 'end'); edQueue(); }
+}
+function edIndent(out) {
+  const ta = edTA(), v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
+  if (!out && s === e) return edInsert('  ');
+  const ls = v.lastIndexOf('\n', s - 1) + 1, le = v.indexOf('\n', e - (e > s && v[e - 1] === '\n' ? 1 : 0)); const end = le < 0 ? v.length : le;
+  const block = v.slice(ls, end);
+  const lines = block.split('\n').map(l => out ? l.replace(/^( {1,2}|\t)/, '') : '  ' + l);
+  const nb = lines.join('\n'); if (nb === block) return;
+  ta.focus(); ta.setSelectionRange(ls, end); edInsert(nb);
+  ta.setSelectionRange(ls, ls + nb.length); edCaret();
+}
+function edEnter() {
+  const ta = edTA(), v = ta.value, s = ta.selectionStart;
+  const ls = v.lastIndexOf('\n', s - 1) + 1, line = v.slice(ls, s);
+  let ind = line.match(/^[ \t]*/)[0], extra = '';
+  const tm = ED.lang === 'html' && line.match(/<([a-zA-Z][\w-]*)\b[^<>]*>\s*$/);
+  if (/[{[(]\s*$/.test(line) || (ED.lang === 'yaml' && /:\s*$/.test(line)) ||
+      (tm && !/\/>\s*$/.test(line) && !/^(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/i.test(tm[1]) && !new RegExp(`</${tm[1]}>`, 'i').test(line))) extra = '  ';
+  const next = v[ta.selectionEnd], prev = line.trimEnd().slice(-1);
+  if (extra && ((prev === '{' && next === '}') || (prev === '[' && next === ']') || (prev === '(' && next === ')') || (ED.lang === 'html' && next === '<' && v.slice(ta.selectionEnd, ta.selectionEnd + 2) === '</'))) {
+    edInsert('\n' + ind + extra + '\n' + ind);
+    const p = ta.selectionStart - ind.length - 1; ta.setSelectionRange(p, p);
+  } else edInsert('\n' + ind + extra);
+}
+function edMove(d) { const ta = edTA(), p = Math.max(0, Math.min(ta.value.length, ta.selectionStart + d)); ta.focus(); ta.setSelectionRange(p, p); edCaret(); }
+function edScrollTo(line, vis = 0, len = 0) {
+  const ta = edTA();
+  const y = 10 + line * 20; if (y < ta.scrollTop + 20 || y > ta.scrollTop + ta.clientHeight - 60) ta.scrollTop = Math.max(0, y - ta.clientHeight / 3);
+  const x = 12 + vis * ED.cw; if (x < ta.scrollLeft || x + len * ED.cw > ta.scrollLeft + ta.clientWidth - 20) ta.scrollLeft = Math.max(0, x - 40);
+  edScroll();
+}
+async function goToLine() {
+  const v = await ask({ title: 'Go to line', input: '', placeholder: `1 to ${ED.lines}`, ok: 'Go' });
+  const n = parseInt(v, 10); if (!n) return;
+  const ta = edTA(), lines = ta.value.split('\n'), line = Math.min(Math.max(n, 1), lines.length) - 1;
+  let pos = 0; for (let i = 0; i < line; i++) pos += lines[i].length + 1;
+  ta.focus(); ta.setSelectionRange(pos, pos); edScrollTo(line); edCaret();
+}
+
+/* Find and replace */
+function openFind() { $('#ed-find').hidden = false; const q = $('#fd-q'); const ta = edTA(); if (ta.selectionEnd > ta.selectionStart && ta.selectionEnd - ta.selectionStart < 80) q.value = ta.value.slice(ta.selectionStart, ta.selectionEnd); q.focus(); q.select(); findCompute(true); }
+function closeFind() { $('#ed-find').hidden = true; $('#ed-fmark').hidden = true; ED.hits = []; ED.hit = -1; $('#fd-count').textContent = ''; }
+function findCompute(jump) {
+  const q = $('#fd-q').value, v = edTA().value; ED.hits = [];
+  if (q) { const lq = q.toLowerCase(), lv = v.toLowerCase(); let i = lv.indexOf(lq); while (i >= 0 && ED.hits.length < 5000) { ED.hits.push(i); i = lv.indexOf(lq, i + lq.length); } }
+  if (!ED.hits.length) { ED.hit = -1; $('#ed-fmark').hidden = true; $('#fd-count').textContent = q ? '0' : ''; return; }
+  if (jump || ED.hit < 0 || ED.hit >= ED.hits.length) { const c = edTA().selectionStart; ED.hit = Math.max(0, ED.hits.findIndex(h => h >= c)); }
+  showHit();
+}
+function showHit() {
+  const q = $('#fd-q').value, pos = ED.hits[ED.hit], ta = edTA(); if (pos === undefined) return;
+  const lc = lineColOf(ta.value, pos), fm = $('#ed-fmark');
+  fm.hidden = false; fm.style.top = (10 + lc.line * 20) + 'px'; fm.style.left = (12 + lc.vis * ED.cw) + 'px'; fm.style.width = (q.length * ED.cw) + 'px';
+  $('#fd-count').textContent = `${ED.hit + 1}/${ED.hits.length}`;
+  ta.setSelectionRange(pos, pos + q.length); edScrollTo(lc.line, lc.vis, q.length); edCaret();
+}
+function findStep(d) { if (!ED.hits.length) return findCompute(true); ED.hit = (ED.hit + d + ED.hits.length) % ED.hits.length; showHit(); }
+function replaceOne() {
+  const q = $('#fd-q').value, pos = ED.hits[ED.hit], ta = edTA(); if (!q || pos === undefined) return;
+  ta.focus(); ta.setSelectionRange(pos, pos + q.length); edInsert($('#fd-r').value);
+  ta.blur(); findCompute(false); if (ED.hits.length) { ED.hit = Math.max(0, ED.hits.findIndex(h => h >= pos)); showHit(); }
+}
+function replaceAll() {
+  const q = $('#fd-q').value, ta = edTA(); if (!q || !ED.hits.length) return;
+  const n = ED.hits.length, r = $('#fd-r').value;
+  const nv = ta.value.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), () => r);
+  ta.focus(); ta.setSelectionRange(0, ta.value.length); edInsert(nv); ta.setSelectionRange(0, 0); ta.blur();
+  toast(`Replaced ${n} match${n > 1 ? 'es' : ''}`); findCompute(true);
+}
+$('#fd-q').oninput = () => findCompute(true);
+$('#fd-q').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); findStep(e.shiftKey ? -1 : 1); } };
+$('#fd-next').onclick = () => findStep(1); $('#fd-prev').onclick = () => findStep(-1);
+$('#fd-one').onclick = replaceOne; $('#fd-all').onclick = replaceAll; $('#fd-close').onclick = closeFind;
+
+/* Key bar: symbols the iPhone keyboard hides, plus cursor nudges */
+(() => {
+  const keys = [['pos'], ['indent', () => edIndent(false)], ['outdent', () => edIndent(true)], ['left', () => edMove(-1)], ['right', () => edMove(1)],
+    ...'{}()[]<>/=:;"\'`$#!&|-_+*.,'.split('').map(c => [c])];
+  const bar = $('#ed-keys');
+  keys.forEach(([k, fn]) => {
+    const b = document.createElement('button');
+    if (k === 'pos') { b.className = 'pos'; b.id = 'ed-pos'; b.textContent = '1:1'; b.onclick = goToLine; bar.appendChild(b); return; }
+    b.className = 'key'; b.innerHTML = I[k] && fn ? ic(k) : esc(k); b.setAttribute('aria-label', k);
+    b.addEventListener('mousedown', e => e.preventDefault()); // keep focus (and the keyboard) in the editor
+    b.onclick = () => fn ? fn() : edInsert(k);
+    bar.appendChild(b);
+  });
+  const ta = edTA();
+  ta.addEventListener('input', edQueue);
+  ta.addEventListener('scroll', edScroll, { passive: true });
+  ['keyup', 'click', 'select', 'focus'].forEach(ev => ta.addEventListener(ev, edCaret));
+  document.addEventListener('selectionchange', () => { if (document.activeElement === ta) edCaret(); });
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Tab') { e.preventDefault(); edIndent(e.shiftKey); }
+    else if (e.key === 'Enter' && !e.isComposing && !e.metaKey && !e.ctrlKey) { e.preventDefault(); edEnter(); }
+    else if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); openFind(); }
+    else if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); edSave(); }
+  });
+})();
+async function edSave() {
+  const text = edTA().value;
+  if (!S.edit.isNew && text === S.edit.orig) return toast('Nothing changed yet');
+  const msg = await ask({ title: 'Commit changes', message: S.edit.path, input: `${S.edit.isNew ? 'Create' : 'Update'} ${baseName(S.edit.path)}`, ok: 'Commit' });
+  if (msg === null) return;
+  edTA().blur();
+  const ok = await runCommit([{ path: S.edit.path, bytes: new TextEncoder().encode(text), mode: S.edit.mode }], msg.trim() || `Update ${baseName(S.edit.path)}`, S.edit.path);
+  if (ok) S.edit = null;
+}
+// Keep the app sized to the visible area so the key bar sits right above the iPhone keyboard
+if (window.visualViewport) {
+  const vv = window.visualViewport;
+  const fit = () => { const r = document.documentElement.style; r.setProperty('--vvh', vv.height + 'px'); r.setProperty('--vvt', vv.offsetTop + 'px'); };
+  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
+}
+
+/* ---------- Commit engine (Git Data API: one commit for any number of files) ---------- */
+const BATCH_FILES = 50, BATCH_BYTES = 12 * 1048576, INLINE_MAX = 400 * 1024;
+function makeBatches(changes) {
+  const out = []; let cur = [], bytes = 0;
+  for (const c of changes) {
+    const n = c.bytes ? c.bytes.length : 0;
+    if (cur.length && (cur.length >= BATCH_FILES || bytes + n > BATCH_BYTES)) { out.push(cur); cur = []; bytes = 0; }
+    cur.push(c); bytes += n;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+// Text files ride inside the tree request itself, so they cost no extra API calls
+function inlineText(c) {
+  if (!c.bytes || c.bytes.length > INLINE_MAX || isBinary(c.bytes, c.path)) return null;
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(c.bytes); } catch { return null; }
+}
+async function commitChanges(changes, message, onProgress = () => {}) {
+  changes = changes.slice();
+  S.onWait = t => onProgress(t);
+  try {
+    if (S.empty) {
+      // Git Data API can't write to an empty repo, so the first file goes in through the Contents API
+      const i = changes.findIndex(c => c.bytes);
+      if (i < 0) throw new Error('Nothing to add');
+      const first = changes.splice(i, 1)[0];
+      onProgress('Creating the first commit');
+      await gh(`${R()}/contents/${encPath(first.path)}`, { method: 'PUT', body: JSON.stringify({ message, content: bytesToB64(first.bytes) }) });
+      S.empty = false;
+      const repo = await gh(R()); S.repo = repo; S.branch = repo.default_branch;
+      if (!changes.length) return;
+    }
+    // Reuse content GitHub already has (moved or duplicated files) instead of re-uploading it
+    const known = new Set(S.tree.filter(e => e.type === 'blob').map(e => e.sha));
+    await pool(changes.filter(c => c.bytes && !c.sha), 4, async c => { const h = await gitSha(c.bytes); if (known.has(h)) c.sha = h; });
+
+    const batches = makeBatches(changes), total = changes.length;
+    let ref = await gh(`${R()}/git/ref/heads/${encPath(S.branch)}`), parent = ref.object.sha, last, sent = 0;
+    for (let bi = 0; bi < batches.length; bi++) {
+      const batch = batches[bi], many = batches.length > 1;
+      const tag = many ? `Part ${bi + 1} of ${batches.length}: ` : '';
+      const pc = await gh(`${R()}/git/commits/${parent}`);
+      const entries = [], blobs = [];
+      for (const c of batch) {
+        const base = { path: c.path, mode: c.mode || '100644', type: c.type || 'blob' };
+        if (c.delete) entries.push({ ...base, sha: null });
+        else if (!c.bytes || c.sha) entries.push({ ...base, sha: c.sha });
+        else { const t = inlineText(c); if (t !== null) entries.push({ ...base, content: t }); else { blobs.push(c); entries.push(base); } }
+      }
+      let up = 0;
+      // Binary files (images, audio) need their own upload; two at a time stays under GitHub's speed limits
+      await pool(blobs, 2, async c => {
+        const b = await gh(`${R()}/git/blobs`, { method: 'POST', body: JSON.stringify({ content: bytesToB64(c.bytes), encoding: 'base64' }) });
+        c.sha = b.sha; entries.find(e => e.path === c.path).sha = b.sha;
+        up++; onProgress(`${tag}uploading ${up} of ${blobs.length} binary files`, (sent + up / Math.max(1, blobs.length) * batch.length * 0.8) / total);
+      });
+      onProgress(`${tag}saving ${batch.length} file${batch.length > 1 ? 's' : ''}`, (sent + batch.length * 0.85) / total);
+      const tree = await gh(`${R()}/git/trees`, { method: 'POST', body: JSON.stringify({ base_tree: pc.tree.sha, tree: entries }) });
+      const msg = many ? `${message} (part ${bi + 1} of ${batches.length})` : message;
+      last = await gh(`${R()}/git/commits`, { method: 'POST', body: JSON.stringify({ message: msg, tree: tree.sha, parents: [parent] }) });
+      await gh(`${R()}/git/refs/heads/${encPath(S.branch)}`, { method: 'PATCH', body: JSON.stringify({ sha: last.sha }) });
+      parent = last.sha; sent += batch.length;
+      S.partsDone = { done: bi + 1, total: batches.length, files: sent };
+      onProgress(many ? `Part ${bi + 1} of ${batches.length} pushed (${sent} of ${total} files)` : 'Updating branch', sent / total);
+      if (many && bi < batches.length - 1) await new Promise(r => setTimeout(r, 1000)); // breathing room between commits
+    }
+    return last;
+  } finally { S.onWait = null; }
+}
+// Commit, refresh, and land on the right screen. focusPath = file to show afterwards (or folder to open)
+async function runCommit(changes, message, focusPath, onProgress) {
+  try {
+    if (!onProgress) toast('Committing…');
+    S.partsDone = null;
+    await commitChanges(changes, message, onProgress || (t => { if (/Continuing in|Part /.test(t)) toast(t); }));
+    await loadTree();
+    watchActions(true);
+    const e = focusPath && S.byPath.get(focusPath);
+    if (e && e.type === 'blob') { S.path = dirName(e.path); await showFile(e); }
+    else { S.path = e && e.type === 'tree' ? e.path : (focusPath && S.byPath.get(dirName(focusPath))?.type === 'tree' ? dirName(focusPath) : ''); showBrowser(); }
+    toast('Committed to ' + S.branch, 'ok');
+    return true;
+  } catch (err) {
+    const pd = S.partsDone;
+    toast((pd && pd.total > 1 ? `Stopped after part ${pd.done} of ${pd.total} (${pd.files} files are on GitHub). ` : 'Commit failed: ') + friendlyError(err), 'err');
+    return false;
+  }
+}
+
+/* ---------- Rename / delete / create ---------- */
+async function renameEntry(e) {
+  const dir = e.type === 'tree';
+  let v = await ask({ title: dir ? 'Rename folder' : 'Rename file', message: 'Edit the path. Slashes move it into another folder. Naming a folder after one that exists merges them.', input: e.path, ok: 'Save' });
+  if (v === null) return;
+  v = normPath(v);
+  if (!v || v === e.path) return;
+  if (dir && v.startsWith(e.path + '/')) return toast("A folder can't move inside itself", 'err');
+  const ex = S.byPath.get(v);
+  if (ex && dir && ex.type !== 'tree') return toast('A file already has that name', 'err');
+  if (ex && !dir && ex.type === 'tree') return toast('A folder already has that name', 'err');
+  const merge = dir && ex?.type === 'tree';
+  if (merge && !await ask({ title: `Merge into “${v}”?`, message: `A folder with that name already exists, so the two will be combined. If a file exists in both, you'll choose what to do.`, ok: 'Merge' })) return;
+  const ops = dir ? blobsUnder(e.path).map(b => ({ from: b, to: v + b.path.slice(e.path.length) })) : [{ from: e, to: v }];
+  await executeMove(ops, `${merge ? 'Merge' : 'Move'} ${e.path} ${merge ? 'into' : 'to'} ${v}`, dir ? v : v);
+}
+
+/* ---------- Moving and merging ---------- */
+// Files under each item, mapped to where they land inside dest
+function makeOps(items, dest) {
+  const ops = [];
+  for (const it of items) {
+    const root = (dest ? dest + '/' : '') + baseName(it.path);
+    if (it.type === 'tree') blobsUnder(it.path).forEach(b => ops.push({ from: b, to: root + b.path.slice(it.path.length) }));
+    else ops.push({ from: it, to: root });
+  }
+  return ops;
+}
+function classifyOps(ops) {
+  const leaving = new Set(ops.map(o => o.from.path));
+  for (const o of ops) {
+    if (o.to === o.from.path) { o.kind = 'same'; continue; }
+    const ex = S.byPath.get(o.to);
+    if (ex && !leaving.has(o.to)) { o.kind = ex.type === 'tree' ? 'bad' : ex.sha === o.from.sha ? 'dup' : 'conflict'; continue; }
+    o.kind = 'ok';
+    const parts = o.to.split('/');
+    for (let i = 1; i < parts.length; i++) {
+      const pp = parts.slice(0, i).join('/'), pe = S.byPath.get(pp);
+      if (pe && pe.type !== 'tree' && !leaving.has(pp)) { o.kind = 'bad'; break; }
+    }
+  }
+  return ops;
+}
+function freeName(p, taken) {
+  const d = dirName(p), b = baseName(p), i = b.lastIndexOf('.');
+  const stem = i > 0 ? b.slice(0, i) : b, ext = i > 0 ? b.slice(i) : '';
+  for (let n = 2; ; n++) { const c = (d ? d + '/' : '') + `${stem} ${n}${ext}`; if (!taken.has(c)) return c; }
+}
+function chooseConflict(conf) {
+  return new Promise(resolve => {
+    const names = conf.map(o => baseName(o.to));
+    const what = names.length === 1 ? `“${names[0]}” already exists there` : `${names.length} files already exist there`;
+    S.onSheetDismiss = () => resolve(null);
+    const pickMode = m => () => { S.onSheetDismiss = null; resolve(m); };
+    sheetMenu(what, [
+      { label: 'Replace them', sub: 'The files you are moving win', icon: 'swap', fn: pickMode('replace') },
+      { label: 'Keep both', sub: `Moved files get a number, like “${freeName(conf[0].to, new Set([conf[0].to]))}”`.replace(/“.*\//, '“'), icon: 'copy', fn: pickMode('both') },
+      { label: 'Skip those files', sub: 'Leave the existing ones; skipped files stay where they are', icon: 'skip', fn: pickMode('skip') },
+      { label: 'Cancel', icon: 'x', fn: pickMode(null) }
+    ]);
+  });
+}
+async function executeMove(ops, message, focus, onStart) {
+  classifyOps(ops);
+  const bad = ops.filter(o => o.kind === 'bad');
+  if (bad.length) { toast(`Can't move: “${bad[0].to}” would land where a ${S.byPath.get(bad[0].to)?.type === 'tree' ? 'folder' : 'file'} with that name already is.`, 'err'); return false; }
+  const conf = ops.filter(o => o.kind === 'conflict');
+  let mode = 'replace';
+  if (conf.length) { mode = await chooseConflict(conf); if (!mode) return false; }
+  const taken = new Set(S.tree.map(e => e.path)); ops.forEach(o => taken.add(o.to));
+  const adds = [], dels = []; let skipped = 0, merged = 0;
+  for (const o of ops) {
+    if (o.kind === 'same') continue;
+    let to = o.to;
+    if (o.kind === 'conflict') {
+      if (mode === 'skip') { skipped++; continue; }
+      if (mode === 'both') { to = freeName(to, taken); taken.add(to); }
+    }
+    if (o.kind === 'dup') merged++; // identical file already there: just drop the moving copy
+    else adds.push({ path: to, sha: o.from.sha, mode: o.from.mode, type: o.from.type });
+    dels.push({ path: o.from.path, delete: true, mode: o.from.mode, type: o.from.type });
+  }
+  const addSet = new Set(adds.map(a => a.path));
+  const changes = [...adds, ...dels.filter(d => !addSet.has(d.path))];
+  if (!changes.length) { toast('Nothing to move'); return false; }
+  if (onStart) onStart();
+  const ok = await runCommit(changes, message, focus);
+  if (ok && (skipped || merged)) toast([skipped && `${skipped} skipped`, merged && `${merged} identical file${merged > 1 ? 's' : ''} merged`].filter(Boolean).join(', '), 'ok');
+  return ok;
+}
+// Folder picker sheet; resolves to a path ('' = repo root) or null
+function pickFolder({ title, start = '', isDisabled = () => false, okLabel = 'Move here' }) {
+  return new Promise(resolve => {
+    let cur = start;
+    const done = v => { S.onSheetDismiss = null; closeSheet(); resolve(v); };
+    S.onSheetDismiss = () => resolve(null);
+    const render = () => {
+      const kids = S.tree.filter(e => e.type === 'tree' && dirName(e.path) === cur)
+        .sort((a, b) => baseName(a.path).localeCompare(baseName(b.path), undefined, { numeric: true, sensitivity: 'base' }));
+      const blocked = isDisabled(cur);
+      openSheet(`<div class="sh-title">${esc(title)}</div>
+        <div class="fp-path">/${esc(cur)}${cur && !S.byPath.has(cur) ? ' (new folder)' : ''}</div>
+        ${cur ? `<button class="sh-item" data-up>${ic('left')}<span>Up to /${esc(dirName(cur))}</span></button>` : ''}
+        ${kids.map((k, i) => { const dis = isDisabled(k.path);
+          return `<button class="sh-item" data-k="${i}" ${dis ? 'disabled style="opacity:.4"' : ''}><span class="ico dir">${ic('folder')}</span><span>${esc(baseName(k.path))}${dis ? '<small>Being moved</small>' : ''}</span></button>`; }).join('')
+          || '<div class="hint" style="margin:4px 12px 8px">No folders inside.</div>'}
+        <div style="display:flex;gap:8px;padding:10px 6px 0">
+          <button class="btn ghost" id="fp-new" style="margin:0">${ic('newfolder')}New folder</button>
+          <button class="btn" id="fp-ok" style="margin:0" ${blocked ? 'disabled' : ''}>${esc(okLabel)}</button></div>`);
+      const sh = $('#sheet');
+      if (sh.querySelector('[data-up]')) sh.querySelector('[data-up]').onclick = () => { cur = dirName(cur); render(); };
+      sh.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { cur = kids[+b.dataset.k].path; render(); });
+      $('#fp-new').onclick = async () => {
+        const n = normPath(await ask({ title: 'New folder', message: `Inside /${cur}`, input: '', placeholder: 'folder-name', ok: 'Create' }));
+        if (!n) return;
+        const np = (cur ? cur + '/' : '') + n;
+        if (S.byPath.get(np) && S.byPath.get(np).type !== 'tree') return toast('A file already has that name', 'err');
+        cur = np; render();
+      };
+      $('#fp-ok').onclick = () => done(cur);
+    };
+    render();
+  });
+}
+async function moveItems(items) {
+  if (!items.length) return;
+  const from = dirName(items[0].path);
+  const dirs = items.filter(e => e.type === 'tree').map(e => e.path);
+  const label = items.length === 1 ? `“${baseName(items[0].path)}”` : `${items.length} items`;
+  const dest = await pickFolder({ title: `Move ${label} to…`, start: from, isDisabled: f => dirs.some(d => f === d || f.startsWith(d + '/')) });
+  if (dest === null) return;
+  if (items.every(e => dirName(e.path) === dest)) return toast("They're already in that folder");
+  const merging = dirs.filter(d => S.byPath.get((dest ? dest + '/' : '') + baseName(d))?.type === 'tree').map(baseName);
+  if (merging.length && !await ask({ title: merging.length === 1 ? `Merge “${merging[0]}”?` : `Merge ${merging.length} folders?`,
+    message: `/${dest} already has ${merging.length === 1 ? 'a folder' : 'folders'} named ${merging.map(m => `“${m}”`).join(', ')}. The contents will be combined, and you'll choose what to do with any file that exists in both.`, ok: 'Merge' })) return;
+  const what = items.length === 1 ? baseName(items[0].path) : `${items.length} items`;
+  await executeMove(makeOps(items, dest), `${merging.length ? 'Move and merge' : 'Move'} ${what} to ${dest ? dest + '/' : 'root'}`, dest,
+    () => { S.sel = null; $('#selbar').hidden = true; });
+}
+
+async function deleteEntry(e) {
+  const dir = e.type === 'tree';
+  const items = dir ? blobsUnder(e.path) : [e];
+  if (!await ask({ title: `Delete ${baseName(e.path)}?`, message: dir ? `This removes the folder and all ${items.length} files inside it in one commit.` : 'The file stays in the repository history.', ok: 'Delete', danger: true })) return;
+  if (S.screen === 'file') S.path = dirName(e.path);
+  await runCommit(items.map(it => ({ path: it.path, delete: true, mode: it.mode, type: it.type })), `Delete ${e.path}`, dirName(e.path));
+}
+async function newFile() {
+  let n = await ask({ title: 'New file', message: `Created in /${S.path}. Slashes make subfolders.`, input: '', placeholder: 'script.js', ok: 'Create' });
+  n = normPath(n); if (!n) return;
+  const path = (S.path ? S.path + '/' : '') + n;
+  if (S.byPath.has(path)) return toast('That file already exists', 'err');
+  openEditor(path, '', true);
+}
+async function newFolder() {
+  let n = await ask({ title: 'New folder', message: 'Git only stores folders that contain a file, so a placeholder .gitkeep is added.', input: '', placeholder: 'assets', ok: 'Create' });
+  n = normPath(n); if (!n) return;
+  const path = (S.path ? S.path + '/' : '') + n;
+  if (S.byPath.has(path)) return toast('That already exists', 'err');
+  await runCommit([{ path: path + '/.gitkeep', bytes: new Uint8Array(0) }], `Create ${path}/`, path);
+}
+
+/* ---------- Add menu + uploads ---------- */
+function addMenu() {
+  sheetMenu(`Add to /${S.path}`, [
+    { label: 'Upload ZIPs', sub: 'Pick one or several. Keeps the full nested folder structure.', icon: 'zip', fn: () => { S.appendStage = false; pick('#in-zip'); } },
+    { label: 'Upload files', sub: 'Pick one or more files', icon: 'upload', fn: () => { S.appendStage = false; pick('#in-files'); } },
+    { label: 'Upload folder', sub: 'Works on desktop browsers; iPhone may not allow it', icon: 'folder', fn: () => { S.appendStage = false; pick('#in-folder'); } },
+    { label: 'New file', icon: 'newfile', fn: newFile },
+    { label: 'New folder', icon: 'newfolder', fn: newFolder }
+  ]);
+}
+function pick(sel) { const i = $(sel); i.value = ''; i.click(); }
+$('#fab').onclick = addMenu;
+
+$('#in-files').onchange = e => { const fs = [...e.target.files]; if (fs.length) addSource('files', fs.map(f => ({ rel: f.name, get: () => f.arrayBuffer() })), fs.length === 1 ? fs[0].name : `${fs.length} files`); };
+$('#in-folder').onchange = e => { const fs = [...e.target.files]; if (fs.length) addSource('folder', fs.map(f => ({ rel: f.webkitRelativePath || f.name, get: () => f.arrayBuffer() })), (fs[0].webkitRelativePath || '').split('/')[0] || 'Folder'); };
+$('#in-zip').onchange = ev => {
+  const files = [...ev.target.files]; if (!files.length) return;
+  if (S.quick) { S.quick = false; return quickPush(files); }
+  processZips(files, !!(S.appendStage && S.stage));
+};
+async function processZips(files, append) {
+  showStageLoading(files.length > 1 ? `Opening ${files.length} ZIPs` : 'Opening ZIP');
+  try { await loadJSZip(); } catch (err) { toast(err.message, 'err'); return S.stage ? renderStage() : showBrowser(); }
+  for (const file of files) {
+    let list;
+    try {
+      const zip = await JSZip.loadAsync(file); list = [];
+      zip.forEach((rel, zf) => { if (!zf.dir) list.push({ rel, get: () => zf.async('uint8array') }); });
+      if (!list.length) throw new Error('it is empty');
+    } catch (err) { toast(`Skipped ${file.name}: ${err.message}`, 'err'); continue; }
+    S.appendStage = append;
+    if (await addSource('zip', list, file.name)) append = true;
+  }
+  if (!S.stage) showBrowser();
+}
+function addMoreMenu() {
+  S.appendStage = true;
+  sheetMenu('Add to this upload', [
+    { label: 'ZIP files', sub: 'Pick one or more', icon: 'zip', fn: () => pick('#in-zip') },
+    { label: 'Files', icon: 'upload', fn: () => pick('#in-files') },
+    { label: 'Folder', sub: 'Desktop browsers only', icon: 'folder', fn: () => pick('#in-folder') }
+  ]);
+}
+function loadJSZip() {
+  if (window.JSZip) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = res; s.onerror = () => rej(new Error('ZIP support needs an internet connection'));
+    document.head.appendChild(s);
+  });
+}
+function showStageLoading(t) { go('stage'); setHeader('Review upload', S.repo.name); $('#stage-body').innerHTML = loadingHTML(t); }
+
+let srcSeq = 0;
+// Read one upload (a ZIP, some files, a folder) and add it to the current review, or start a new one
+async function addSource(kind, list, label) {
+  const prev = S.stage, appending = !!(S.appendStage && prev);
+  S.appendStage = false;
+  showStageLoading('Reading ' + label);
+  try {
+    const entries = [];
+    for (const it of list) {
+      const rel = normPath(it.rel);
+      if (!rel || JUNK.test(rel)) continue;
+      const data = await it.get();
+      entries.push({ rel, bytes: data instanceof Uint8Array ? data : new Uint8Array(data), src: label });
+    }
+    if (!entries.length) throw new Error(`${label} only has system files`);
+    $('#stage-body').innerHTML = loadingHTML('Comparing with the repository');
+    await pool(entries, 4, async e => { e.sha = await gitSha(e.bytes); });
+    const firsts = new Set(entries.map(e => e.rel.includes('/') ? e.rel.split('/')[0] : null));
+    const common = firsts.size === 1 && !firsts.has(null) ? [...firsts][0] : null;
+    const saved = kind !== 'files' ? findTarget(label, S.repo.full_name) : null;
+    const st = appending ? prev : { sources: [], target: saved ? saved.target : S.path, mirror: saved ? !!saved.mirror : false, msgEdited: false, msgText: '', showSame: false,
+      undot: saved ? saved.undot !== false : true, skipWf: false, remember: true };
+    const src = { id: ++srcSeq, kind, label, entries, common, strip: false, saved: !!saved, size: entries.reduce((a, e) => a + e.bytes.length, 0) };
+    if (common && saved && typeof saved.strip === 'boolean') src.strip = saved.strip;
+    else if (common) {
+      // Pick whichever layout lines up with more files already in the repo; ZIPs default to unwrapped
+      const pre = normPath(st.target) ? normPath(st.target) + '/' : '';
+      let kept = 0, stripped = 0;
+      for (const e of entries) { if (S.byPath.has(pre + e.rel)) kept++; if (S.byPath.has(pre + e.rel.slice(common.length + 1))) stripped++; }
+      src.strip = stripped > kept || (stripped === kept && kind === 'zip');
+    }
+    st.sources.push(src);
+    S.stage = st; renderStage();
+    return true;
+  } catch (err) {
+    toast(err.message, 'err');
+    if (prev) { S.stage = prev; renderStage(); } else showBrowser();
+    return false;
+  }
+}
+function stagePlan() {
+  const st = S.stage, target = normPath(st.target), pre = target ? target + '/' : '';
+  const map = new Map(); let dups = 0;
+  for (const src of st.sources) for (const e of src.entries) {
+    let rel = src.strip && src.common ? e.rel.slice(src.common.length + 1) : e.rel;
+    if (st.undot && st.aliases.length) rel = undot(rel);
+    const path = pre + rel;
+    if (map.has(path)) dups++;
+    map.set(path, e); // later uploads win
+  }
+  st.dups = dups;
+  const plan = [];
+  for (const [path, e] of map) {
+    const ex = S.byPath.get(path);
+    let status = !ex ? 'new' : ex.type !== 'blob' ? 'bad' : ex.sha === e.sha ? 'same' : 'mod';
+    if (status === 'new') {
+      const parts = path.split('/');
+      for (let i = 1; i < parts.length; i++) if (S.byPath.get(parts.slice(0, i).join('/'))?.type === 'blob') { status = 'bad'; break; }
+    }
+    plan.push({ path, e, status, mode: ex?.type === 'blob' ? ex.mode : '100644' });
+  }
+  if (st.mirror) for (const t of S.tree) if (t.type === 'blob' && t.path.startsWith(pre) && !map.has(t.path)) plan.push({ path: t.path, status: 'del', mode: t.mode });
+  const order = { bad: 0, del: 1, mod: 2, new: 3, same: 4 };
+  plan.sort((a, b) => order[a.status] - order[b.status] || a.path.localeCompare(b.path));
+  return plan;
+}
+function renderStage() {
+  const st = S.stage;
+  const total = st.sources.reduce((a, s) => a + s.entries.length, 0), ns = st.sources.length;
+  st.aliases = [...new Set(st.sources.flatMap(s => s.entries.flatMap(e => e.rel.split('/').filter(x => DOT_ALIASES.includes(x)))))];
+  go('stage'); setHeader('Review upload', `${total} file${total === 1 ? '' : 's'} from ${ns} upload${ns === 1 ? '' : 's'}`);
+  $('#stage-body').innerHTML = `
+    <div class="sec" style="margin-top:4px">Uploads</div>
+    <div class="card">
+      ${st.sources.map(src => `
+        <div class="srcrow"><span class="ico">${ic(src.kind === 'zip' ? 'zip' : src.kind === 'folder' ? 'folder' : 'file')}</span>
+          <div class="rmain"><div class="rname">${esc(src.label)}${src.saved ? '<span class="savedtag">SAVED</span>' : ''}</div><div class="rsub"><span class="meta">${src.entries.length} file${src.entries.length === 1 ? '' : 's'}, ${fmtSize(src.size)}</span></div></div>
+          <button class="more" data-rm="${src.id}" aria-label="Remove ${esc(src.label)}">${ic('x')}</button></div>
+        ${src.common ? `<label class="tog"><input type="checkbox" data-strip="${src.id}" ${src.strip ? 'checked' : ''}><span><b>Unwrap “${esc(src.common)}/”</b><small>Put what's inside straight into the destination. Off keeps “${esc(src.common)}” as its own folder.</small></span></label>` : ''}`).join('')}
+      <button class="showsame" id="st-addmore">+ Add more ZIPs or files</button>
+    </div>
+    <div class="sec">Destination</div>
+    <div class="card">
+      <div class="pathin"><label for="st-target">Upload into</label><span style="font-family:var(--mono);color:var(--muted)">/</span><input id="st-target" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="(repository root)"></div>
+      ${st.aliases.length ? `<label class="tog"><input type="checkbox" id="st-undot" ${st.undot ? 'checked' : ''}><span><b>Rename ${st.aliases.map(a => `“${esc(a)}” to “.${esc(a.slice(1))}”`).join(', ')}</b><small>iPhone hides names that start with a dot, so the underscore version stands in for it.</small></span></label>` : ''}
+      <label class="tog" id="st-skipwf-wrap" hidden><input type="checkbox" id="st-skipwf" ${st.skipWf ? 'checked' : ''}><span><b>Skip workflow files</b><small>Push everything except .github/workflows for now.</small></span></label>
+      ${st.sources.some(x => x.kind !== 'files') ? `<label class="tog"><input type="checkbox" id="st-remember" ${st.remember ? 'checked' : ''}><span><b>Remember these settings</b><small>Next time, Quick push sends ${esc(st.sources.filter(x => x.kind !== 'files').map(x => x.label).join(', '))} here with one tap.</small></span></label>` : ''}
+      <label class="tog"><input type="checkbox" id="st-mirror" ${st.mirror ? 'checked' : ''}><span><b>Remove files not in this upload</b><small>Makes the destination match your uploads exactly. Leave off to only add and update.</small></span></label>
+    </div>
+    <div id="st-plan"></div>
+    <div class="card" style="padding:12px">
+      <input id="st-msg" class="field" placeholder="Commit message">
+      <button id="st-push" class="btn">Push</button>
+      <div class="bar" id="st-bar" hidden><div></div></div>
+      <div class="ptext" id="st-ptext"></div>
+    </div>`;
+  $('#st-target').value = st.target;
+  if (st.msgEdited) $('#st-msg').value = st.msgText;
+  $('#stage-body').querySelectorAll('[data-rm]').forEach(b => b.onclick = () => {
+    st.sources = st.sources.filter(x => x.id !== +b.dataset.rm);
+    if (!st.sources.length) { S.stage = null; showBrowser(); } else renderStage();
+  });
+  $('#stage-body').querySelectorAll('[data-strip]').forEach(c => c.onchange = () => { st.sources.find(x => x.id === +c.dataset.strip).strip = c.checked; updateStagePlan(); });
+  $('#st-addmore').onclick = addMoreMenu;
+  if ($('#st-undot')) $('#st-undot').onchange = e => { st.undot = e.target.checked; updateStagePlan(); };
+  $('#st-skipwf').onchange = e => { st.skipWf = e.target.checked; updateStagePlan(); };
+  $('#st-mirror').onchange = e => { st.mirror = e.target.checked; updateStagePlan(); };
+  if ($('#st-remember')) $('#st-remember').onchange = e => { st.remember = e.target.checked; };
+  let deb; $('#st-target').oninput = e => { clearTimeout(deb); deb = setTimeout(() => { st.target = e.target.value; updateStagePlan(); }, 250); };
+  $('#st-msg').oninput = e => { st.msgEdited = true; st.msgText = e.target.value; };
+  $('#st-push').onclick = pushStage;
+  updateStagePlan();
+}
+function updateStagePlan() {
+  const st = S.stage; st.plan = stagePlan();
+  const wfAll = st.plan.filter(p => p.status !== 'same' && isWorkflow(p.path)).length;
+  if (st.skipWf) st.plan = st.plan.filter(p => !isWorkflow(p.path));
+  const wf = st.skipWf ? 0 : wfAll;
+  const skipBox = $('#st-skipwf-wrap');
+  if (skipBox) skipBox.hidden = !wfAll || !lacksWorkflowScope();
+  const c = { new: 0, mod: 0, del: 0, same: 0, bad: 0 };
+  st.plan.forEach(p => c[p.status]++);
+  const label = { new: 'New', mod: 'Changed', del: 'Delete', same: 'Same', bad: 'Conflict' };
+  const shown = st.plan.filter(p => p.status !== 'same' || st.showSame);
+  $('#st-plan').innerHTML = `
+    <div class="counts">
+      ${c.bad ? `<span class="cnt bad">${c.bad} conflict${c.bad > 1 ? 's' : ''}</span>` : ''}
+      <span class="cnt new">${c.new} new</span><span class="cnt mod">${c.mod} changed</span>
+      ${st.mirror ? `<span class="cnt del">${c.del} to delete</span>` : ''}<span class="cnt">${c.same} unchanged</span>
+    </div>
+    ${wf && lacksWorkflowScope() ? `<div class="warn" style="margin:0 0 12px"><b>Your token can't push workflow files.</b> ${wf} file${wf > 1 ? 's are' : ' is'} in .github/workflows, which GitHub only accepts from tokens with the <b>workflow</b> scope. <a href="https://github.com/settings/tokens" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">Edit your token</a>, check “workflow”, then sign out and back in. Or turn on “Skip workflow files” below to push everything else now.</div>` : ''}
+    ${wf && S.scopes === null ? `<div class="warn" style="margin:0 0 12px">This upload includes ${wf} workflow file${wf > 1 ? 's' : ''}. Fine-grained tokens need the <b>Workflows: read and write</b> permission for these.</div>` : ''}
+    ${st.plan.some(p => p.status === 'mod') ? `<div class="hint" style="margin:0 4px 10px">Tap any file to see exactly what changes.</div>` : ''}
+    ${st.dups ? `<div class="warn" style="margin:0 0 12px">${st.dups} file${st.dups > 1 ? 's appear' : ' appears'} in more than one upload. The one added last is used.</div>` : ''}
+    ${c.bad ? `<div class="warn" style="margin:0 0 12px">Conflicts happen when a file would land where a folder already exists, or inside something that is a file. Change the target folder or unwrap setting.</div>` : ''}
+    <ul class="list plan card" style="border-radius:var(--radius)">
+      ${shown.map((p, i) => `<li class="row" data-i="${i}"><span class="tag ${p.status}">${label[p.status]}</span><span class="p">${esc(p.path)}${p.e && st.sources.length > 1 ? `<br><small style="color:var(--muted);font-family:-apple-system,sans-serif">from ${esc(p.e.src)}</small>` : ''}</span>${p.e ? `<span class="sz">${fmtSize(p.e.bytes.length)}</span>` : ''}</li>`).join('')}
+      ${c.same ? `<button class="showsame" id="st-same">${st.showSame ? 'Hide' : 'Show'} ${c.same} unchanged file${c.same > 1 ? 's' : ''}</button>` : ''}
+      ${!shown.length && !c.same ? '<li class="empty">Nothing to upload</li>' : ''}
+    </ul>`;
+  if ($('#st-same')) $('#st-same').onclick = () => { st.showSame = !st.showSame; updateStagePlan(); };
+  $('#st-plan .plan').onclick = e => { const row = e.target.closest('.row[data-i]'); if (row) showStageDiff(shown[+row.dataset.i]); };
+  const n = c.new + c.mod + c.del;
+  const btn = $('#st-push');
+  const wfBlocked = wf > 0 && lacksWorkflowScope();
+  btn.disabled = !n || c.bad > 0 || wfBlocked;
+  btn.textContent = c.bad ? 'Fix conflicts to push' : wfBlocked ? 'Token needs the workflow scope' : n ? `Push ${n} change${n > 1 ? 's' : ''}` : 'Everything is already up to date';
+  if (!st.msgEdited) {
+    const parts = [c.new && `add ${c.new}`, c.mod && `update ${c.mod}`, c.del && `delete ${c.del}`].filter(Boolean);
+    const where = normPath(st.target) ? ` in ${normPath(st.target)}/` : '';
+    let m = parts.length ? parts.join(', ') + ` file${n > 1 ? 's' : ''}${where}` : '';
+    $('#st-msg').value = m ? m[0].toUpperCase() + m.slice(1) : '';
+  }
+}
+async function pushStage() {
+  const st = S.stage, todo = st.plan.filter(p => p.status !== 'same');
+  if (!todo.length || todo.some(p => p.status === 'bad')) return;
+  const big = todo.find(p => p.e && p.e.bytes.length > 95 * 1048576);
+  if (big) return toast(`${big.path} is over GitHub's 100 MB file limit`, 'err');
+  const dels = todo.filter(p => p.status === 'del').length;
+  if (dels && !await ask({ title: `Delete ${dels} file${dels > 1 ? 's' : ''}?`, message: 'They are not in your upload, so they will be removed from the repository in this commit.', ok: 'Push and delete', danger: true })) return;
+  const btn = $('#st-push'), bar = $('#st-bar'), pt = $('#st-ptext');
+  btn.disabled = true; btn.innerHTML = '<div class="spin"></div>Pushing'; bar.hidden = false;
+  const nb = makeBatches(todo.map(p => ({ bytes: p.e?.bytes }))).length;
+  if (nb > 1) pt.textContent = `Large upload: pushing in ${nb} parts. Keep GitMobile open until it finishes.`;
+  document.querySelectorAll('#stage-body input').forEach(i => i.disabled = true);
+  const changes = todo.map(p => p.status === 'del' ? { path: p.path, delete: true, mode: p.mode } : { path: p.path, bytes: p.e.bytes, mode: p.mode });
+  const target = normPath(st.target);
+  const ok = await runCommit(changes, $('#st-msg').value.trim() || 'Upload files', target || '', (text, frac) => {
+    pt.textContent = text; if (frac != null) bar.firstElementChild.style.width = Math.round(frac * 100) + '%';
+  });
+  if (ok) { if (st.remember) rememberTargets(st); S.stage = null; }
+  else {
+    const pd = S.partsDone;
+    if (pd && pd.files) {
+      // Some parts landed: re-compare so the next push only sends what's left
+      try { await loadTree(); } catch {}
+      if (S.stage === st) { renderStage(); $('#st-ptext').textContent = `${pd.files} files already pushed. Tap Push to send the rest.`; }
+      return;
+    }
+    btn.disabled = false; btn.textContent = 'Try again'; document.querySelectorAll('#stage-body input').forEach(i => i.disabled = false);
+  }
+}
+
+/* ---------- GitHub Actions ---------- */
+const BAD = ['failure', 'timed_out', 'startup_failure', 'action_required', 'cancelled'];
+function statusOf(x) {
+  if (x.status !== 'completed') return x.status === 'in_progress' ? { c: 'run', l: 'Running' } : { c: 'wait', l: x.status === 'waiting' ? 'Waiting' : 'Queued' };
+  const m = { success: ['ok', 'Succeeded'], failure: ['fail', 'Failed'], cancelled: ['mute', 'Cancelled'], skipped: ['mute', 'Skipped'],
+    timed_out: ['fail', 'Timed out'], action_required: ['fail', 'Needs approval'], neutral: ['mute', 'Neutral'], startup_failure: ['fail', "Couldn't start"], stale: ['mute', 'Stale'] }[x.conclusion] || ['mute', x.conclusion || 'Done'];
+  return { c: m[0], l: m[1] };
+}
+const stBadge = st => `<span class="st ${st.c}">${st.c === 'run' ? '<span class="spin"></span>' : ic({ ok: 'check', fail: 'x', wait: 'clock', mute: 'skip' }[st.c])}</span>`;
+function fmtDur(a, b) {
+  if (!a) return '';
+  const s = Math.max(0, Math.round(((b ? new Date(b) : Date.now()) - new Date(a)) / 1000));
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m`;
+}
+const isPagesRun = r => /pages/i.test(r.name || '') || /pages/i.test(r.path || '');
+
+async function loadPagesUrl() {
+  const repo = S.repo;
+  try { const pg = await gh(`${R()}/pages`); if (S.repo === repo) { S.pagesUrl = pg.html_url; renderActionStrip(); } } catch {}
+}
+function stopActions() { clearTimeout(S.actions.t); S.actions = { sha: null, runs: [], seen: new Map(), fresh: 0, t: null }; }
+// Watch the workflow runs for the branch's current commit. fresh = we just pushed, so wait for runs to appear
+function watchActions(fresh) {
+  if (!S.headSha) return;
+  const same = S.actions.sha === S.headSha;
+  clearTimeout(S.actions.t);
+  if (!same) S.actions = { sha: S.headSha, runs: [], seen: new Map(), fresh: 0, t: null };
+  if (fresh) S.actions.fresh = Date.now();
+  pollActions();
+}
+async function pollActions() {
+  const A = S.actions, repo = S.repo, sha = A.sha;
+  if (!repo || !sha) return;
+  let runs;
+  try { runs = (await gh(`${R()}/actions/runs?head_sha=${sha}&per_page=30`)).workflow_runs || []; }
+  catch { runs = null; }
+  if (S.repo !== repo || S.actions !== A) return;
+  if (runs) {
+    // Announce runs that finished while we were watching them
+    for (const r of runs) {
+      const prev = A.seen.get(r.id);
+      if (prev && prev !== 'completed' && r.status === 'completed') {
+        const st = statusOf(r);
+        if (st.c === 'ok') toast(isPagesRun(r) ? 'New version is live' : `${r.name} passed`, 'ok');
+        else if (st.c === 'fail') toast(`${r.name}: ${st.l.toLowerCase()}`, 'err');
+      }
+      A.seen.set(r.id, r.status);
+    }
+    A.runs = runs;
+  }
+  const waitingForStart = A.fresh && !A.runs.length && Date.now() - A.fresh < 90000;
+  if (A.fresh && !waitingForStart && !A.runs.length) A.fresh = 0;
+  renderActionStrip();
+  if (S.screen === 'actions') loadActionsList(true);
+  const active = A.runs.some(r => r.status !== 'completed');
+  if (active || waitingForStart) A.t = setTimeout(pollActions, active ? 6000 : 5000);
+}
+function summarize() {
+  const A = S.actions, runs = A.runs;
+  if (!runs.length) return A.fresh ? { c: 'wait', title: 'Waiting for actions to start', sub: 'Checking for workflows triggered by your push' } : null;
+  const active = runs.filter(r => r.status !== 'completed');
+  const failed = runs.filter(r => r.status === 'completed' && BAD.includes(r.conclusion));
+  const pages = runs.find(isPagesRun);
+  if (failed.length) {
+    const st = statusOf(failed[0]);
+    return { c: st.c === 'mute' ? 'wait' : 'fail', title: `${failed[0].name}: ${st.l.toLowerCase()}`, sub: active.length ? `${active.length} other run${active.length > 1 ? 's' : ''} still going` : 'Tap to see which step broke', run: failed[0], st };
+  }
+  if (active.length) {
+    const r = active[0], st = statusOf(r);
+    return { c: st.c, title: `${r.name}: ${st.l.toLowerCase()}`, sub: `${runs.length - active.length} of ${runs.length} done, ${fmtDur(r.run_started_at || r.created_at)} so far`, run: r, st };
+  }
+  const last = runs.reduce((a, b) => a.updated_at > b.updated_at ? a : b);
+  return { c: 'ok', title: pages ? 'New version is live' : `All ${runs.length} action${runs.length > 1 ? 's' : ''} passed`, sub: `Finished ${timeAgo(last.updated_at)}`, run: pages || last, st: { c: 'ok' }, live: !!pages };
+}
+function renderActionStrip() {
+  const el = $('#act-strip'); if (!el) return;
+  const sm = summarize();
+  if (!sm) { el.innerHTML = ''; return; }
+  const badge = sm.st ? stBadge(sm.st) : stBadge({ c: 'wait' });
+  el.innerHTML = `<div class="astrip ${sm.c}"><button class="main" id="as-main">${badge}<div style="min-width:0"><b>${esc(sm.title)}</b><small>${esc(sm.sub)}</small></div></button>
+    ${sm.live && S.pagesUrl ? `<button class="site" id="as-site">Open site</button>` : ''}</div>`;
+  $('#as-main').onclick = () => sm.run ? showRun(sm.run.id) : showActions();
+  if ($('#as-site')) $('#as-site').onclick = () => window.open(S.pagesUrl, '_blank');
+}
+
+/* Actions list */
+function showActions() {
+  go('actions');
+  setHeader('Actions', `${S.repo.name} on ${S.branch}`, [{ icon: 'refresh', label: 'Refresh', fn: () => loadActionsList() }]);
+  $('#actions-list').innerHTML = loadingHTML('Loading workflow runs');
+  loadActionsList();
+}
+let listT;
+async function loadActionsList(quiet) {
+  clearTimeout(listT);
+  const repo = S.repo;
+  try {
+    const d = await gh(`${R()}/actions/runs?branch=${encodeURIComponent(S.branch)}&per_page=25`);
+    if (S.screen !== 'actions' || S.repo !== repo) return;
+    const runs = d.workflow_runs || [];
+    $('#actions-list').innerHTML = runs.length ? runs.map(r => {
+      const st = statusOf(r), msg = (r.head_commit?.message || r.display_title || '').split('\n')[0];
+      return `<li class="row" data-id="${r.id}">${stBadge(st)}
+        <div class="rmain"><div class="rname">${esc(r.name)}</div>
+          <div class="rsub"><span class="meta">#${r.run_number}${r.run_attempt > 1 ? ` (try ${r.run_attempt})` : ''}</span><span class="cmsg">${esc(msg)}</span></div></div>
+        <div class="rtime" style="text-align:right">${timeAgo(r.created_at)}<br>${st.c === 'run' || st.c === 'wait' ? st.l : fmtDur(r.run_started_at, r.updated_at)}</div></li>`;
+    }).join('') : `<li class="empty">No workflow runs on ${esc(S.branch)} yet.<br>Workflows live in .github/workflows, and GitHub Pages deploys show up here too.</li>`;
+    $('#actions-list').onclick = e => { const row = e.target.closest('.row'); if (row) showRun(+row.dataset.id); };
+    if (runs.some(r => r.status !== 'completed')) listT = setTimeout(() => S.screen === 'actions' && loadActionsList(true), 6000);
+  } catch (e) {
+    if (S.screen !== 'actions') return;
+    if (!quiet) $('#actions-list').innerHTML = `<li class="empty">Couldn't load actions: ${esc(e.status === 403 || e.status === 404 ? 'your token may not have access to Actions on this repo (fine-grained tokens need Actions: read).' : e.message)}</li>`;
+  }
+}
+
+/* Single run */
+function showRun(id) {
+  clearTimeout(S.runT); S.runId = id; S.runLogs = {};
+  go('run'); setHeader('Workflow run', S.repo.name);
+  $('#run-body').innerHTML = loadingHTML('Loading run');
+  loadRun();
+}
+async function loadRun() {
+  const id = S.runId; clearTimeout(S.runT);
+  try {
+    const [run, jobs] = await Promise.all([gh(`${R()}/actions/runs/${id}`), gh(`${R()}/actions/runs/${id}/jobs?per_page=50`)]);
+    if (S.runId !== id || S.screen !== 'run') return;
+    renderRun(run, jobs.jobs || []);
+    if (run.status !== 'completed') S.runT = setTimeout(loadRun, 5000);
+  } catch (e) { if (S.runId === id) $('#run-body').innerHTML = `<div class="empty">Couldn't load this run: ${esc(e.message)}</div>`; }
+}
+function renderRun(run, jobs) {
+  setHeader(run.name, `#${run.run_number} on ${run.head_branch}`);
+  const st = statusOf(run), done = run.status === 'completed';
+  const msg = (run.head_commit?.message || run.display_title || '').split('\n')[0];
+  const live = done && st.c === 'ok' && isPagesRun(run) && S.pagesUrl;
+  const rows = [
+    ['Commit', `${esc(msg)}<br><span class="mono" style="color:var(--muted)">${run.head_sha.slice(0, 7)}${run.head_sha === S.headSha ? ' (latest)' : ''}</span>`],
+    ['Trigger', esc(run.event) + (run.triggering_actor ? ` by ${esc(run.triggering_actor.login)}` : '')],
+    ['Started', run.run_started_at ? `${fmtDate(run.run_started_at)}<br><span style="color:var(--muted)">${timeAgo(run.run_started_at)}</span>` : 'Not yet'],
+    ['Duration', done ? fmtDur(run.run_started_at, run.updated_at) : `${fmtDur(run.run_started_at)} so far`]
+  ];
+  if (run.run_attempt > 1) rows.push(['Attempt', String(run.run_attempt)]);
+  const failed = done && BAD.includes(run.conclusion) && run.conclusion !== 'action_required';
+  const keepLogs = S.runLogs || {};
+  $('#run-body').innerHTML = `
+    <div class="card"><div class="status-line">${stBadge(st)}<span>${st.l}${live ? ', new version is live' : ''}</span></div>
+      <dl class="meta">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl></div>
+    <div class="actions" style="margin-bottom:12px">
+      ${live ? `<button class="act primary" data-a="site">${ic('link')}Open site</button>` : ''}
+      ${failed ? `<button class="act primary" data-a="rerun-failed">${ic('rerun')}Re-run failed</button>` : ''}
+      ${done ? `<button class="act" data-a="rerun">${ic('rerun')}Re-run all</button>` : `<button class="act danger" data-a="cancel">${ic('stop')}Cancel run</button>`}
+      <button class="act" data-a="github">${ic('link')}On GitHub</button>
+    </div>
+    <div class="sec">Jobs</div>
+    ${jobs.length ? jobs.map(j => {
+      const js = statusOf(j);
+      return `<div class="card job"><div class="job-h">${stBadge(js)}<span class="n">${esc(j.name)}</span><span class="dur">${j.started_at ? fmtDur(j.started_at, j.completed_at) : js.l}</span></div>
+        ${(j.steps || []).map(sp => { const ss = statusOf(sp);
+          return `<div class="step ${ss.c === 'fail' ? 'failed' : ''} ${sp.conclusion === 'skipped' ? 'skipped' : ''}">${stBadge(ss)}<span class="n">${esc(sp.name)}</span><span class="dur">${sp.started_at ? fmtDur(sp.started_at, sp.completed_at) : ''}</span></div>`; }).join('')}
+        ${js.c === 'fail' ? `<button class="showsame" data-log="${j.id}">${keepLogs[j.id] ? 'Hide log' : 'Show end of log'}</button>${keepLogs[j.id] ? `<pre class="logbox">${esc(keepLogs[j.id])}</pre>` : ''}` : ''}
+      </div>`;
+    }).join('') : `<div class="empty">${done ? 'No jobs ran.' : 'Waiting for a runner to pick this up…'}</div>`}`;
+  $('#run-body').querySelectorAll('.act').forEach(b => b.onclick = () => runAction(b.dataset.a, run));
+  $('#run-body').querySelectorAll('[data-log]').forEach(b => b.onclick = () => toggleLog(+b.dataset.log, jobs.find(j => j.id === +b.dataset.log), run, jobs));
+  const pre = $('#run-body .logbox'); if (pre) pre.scrollTop = pre.scrollHeight;
+}
+async function toggleLog(id, job, run, jobs) {
+  if (S.runLogs[id]) { delete S.runLogs[id]; return renderRun(run, jobs); }
+  toast('Loading log…');
+  try {
+    const res = await fetch(`${API}/repos/${S.repo.full_name}/actions/jobs/${id}/logs`, { headers: { Authorization: `Bearer ${S.token}`, Accept: 'application/vnd.github+json' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const lines = (await res.text()).split('\n').map(l => l.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, '').replace(/\x1b\[[0-9;]*m/g, ''));
+    S.runLogs[id] = lines.slice(-80).join('\n').trim();
+    renderRun(run, jobs);
+  } catch {
+    // Log downloads can be blocked from the browser; GitHub's page always works
+    toast("Couldn't load the log here, opening it on GitHub");
+    window.open(job.html_url, '_blank');
+  }
+}
+async function runAction(a, run) {
+  if (a === 'site') return window.open(S.pagesUrl, '_blank');
+  if (a === 'github') return window.open(run.html_url, '_blank');
+  if (a === 'cancel' && !await ask({ title: 'Cancel this run?', ok: 'Cancel run', danger: true })) return;
+  const ep = { 'rerun-failed': 'rerun-failed-jobs', rerun: 'rerun', cancel: 'cancel' }[a];
+  try {
+    await gh(`${R()}/actions/runs/${run.id}/${ep}`, { method: 'POST', body: '{}' });
+    toast(a === 'cancel' ? 'Cancelling…' : 'Re-run started', 'ok');
+    if (run.head_sha === S.headSha) { S.actions.seen.delete(run.id); setTimeout(() => watchActions(true), 3000); }
+    setTimeout(loadRun, 2000);
+  } catch (e) { toast(`Couldn't ${a === 'cancel' ? 'cancel' : 're-run'}: ${e.message}`, 'err'); }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !S.repo) return;
+  if (S.actions.sha) pollActions();
+  if (S.screen === 'run') loadRun();
+});
+
+/* ---------- New repository ---------- */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function pagesUrlFor(owner, name) {
+  return name.toLowerCase() === `${owner.toLowerCase()}.github.io` ? `https://${owner.toLowerCase()}.github.io/` : `https://${owner.toLowerCase()}.github.io/${name}/`;
+}
+// Pages can take a moment to accept a branch that was just created, so retry a few times
+async function enablePages(fullName, body) {
+  for (let i = 0; ; i++) {
+    try { return await gh(`/repos/${fullName}/pages`, { method: 'POST', body: JSON.stringify(body) }); }
+    catch (e) { if (i >= 3 || ![404, 422].includes(e.status) || /already/i.test(e.message)) throw e; await sleep(1500 * (i + 1)); }
+  }
+}
+function pagesErrorText(e) {
+  if (/plan|upgrade|private/i.test(e.message)) return 'GitHub Pages on a private repository needs a paid GitHub plan. Make the repo public or skip Pages.';
+  return e.message;
+}
+function showNewRepo() {
+  go('newrepo'); setHeader('New repository', S.user.login);
+  $('#newrepo-body').innerHTML = `
+    <div class="card">
+      <div class="pathin"><label for="nr-name">Name</label><input id="nr-name" placeholder="my-project" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <div class="pathin"><label for="nr-desc">Description</label><input id="nr-desc" placeholder="Optional" style="font-family:inherit"></div>
+      <label class="tog"><input type="checkbox" id="nr-private"><span><b>Private</b><small>Only you and people you invite can see it.</small></span></label>
+      <label class="tog" id="nr-readme-wrap"><input type="checkbox" id="nr-readme" checked><span><b>Add a README</b><small>Gives the repo a first commit so it's ready to use.</small></span></label>
+      <label class="tog"><input type="checkbox" id="nr-pages" checked><span><b>Turn on GitHub Pages</b><small id="nr-pages-sub"></small></span></label>
+    </div>
+    <div class="hint" id="nr-hint"></div>
+    <button class="btn" id="nr-go" disabled>Create repository</button>`;
+  const upd = () => {
+    const raw = $('#nr-name').value, name = raw.trim().replace(/\s+/g, '-');
+    const pages = $('#nr-pages').checked, priv = $('#nr-private').checked;
+    $('#nr-readme').disabled = pages; if (pages) $('#nr-readme').checked = true;
+    $('#nr-readme-wrap').classList.toggle('off', pages);
+    $('#nr-pages-sub').textContent = `Publishes the main branch.${name ? ' Your site will be at ' + pagesUrlFor(S.user.login, name) : ''}`;
+    let hint = '', bad = false;
+    if (name && !/^[A-Za-z0-9._-]+$/.test(name)) { hint = 'Use only letters, numbers, dashes, dots and underscores.'; bad = true; }
+    else if (name && S.repos.some(r => r.owner.login === S.user.login && r.name.toLowerCase() === name.toLowerCase())) { hint = 'You already have a repository with that name.'; bad = true; }
+    else if (raw.trim() !== name && name) hint = `Will be created as “${name}”.`;
+    else if (pages && priv) hint = 'Heads up: Pages on a private repo needs a paid GitHub plan.';
+    else if (pages) hint = 'The README is required so Pages has something to publish. You can replace it with your site right after.';
+    $('#nr-hint').textContent = hint; $('#nr-hint').className = 'hint' + (bad ? ' bad' : '');
+    $('#nr-go').disabled = !name || bad;
+  };
+  ['#nr-name', '#nr-private', '#nr-pages', '#nr-readme'].forEach(id => $(id).addEventListener(id === '#nr-name' ? 'input' : 'change', upd));
+  $('#nr-go').onclick = createRepo;
+  upd(); setTimeout(() => $('#nr-name').focus(), 100);
+}
+async function createRepo() {
+  const name = $('#nr-name').value.trim().replace(/\s+/g, '-');
+  const pages = $('#nr-pages').checked, priv = $('#nr-private').checked;
+  const b = $('#nr-go'); b.disabled = true; b.innerHTML = '<div class="spin"></div>Creating';
+  let repo;
+  try {
+    repo = await gh('/user/repos', { method: 'POST', body: JSON.stringify({ name, description: $('#nr-desc').value.trim() || undefined, private: priv, auto_init: $('#nr-readme').checked }) });
+  } catch (e) {
+    toast("Couldn't create it: " + (/exists/i.test(e.message) ? 'that name is already taken on your account.' : e.message), 'err');
+    b.disabled = false; b.textContent = 'Create repository'; return;
+  }
+  S.repos.unshift(repo);
+  let pagesMsg = '';
+  if (pages) {
+    b.innerHTML = '<div class="spin"></div>Turning on Pages';
+    try { await enablePages(repo.full_name, { build_type: 'legacy', source: { branch: repo.default_branch, path: '/' } }); pagesMsg = ' with Pages on'; }
+    catch (e) { toast('Repo created, but Pages failed: ' + pagesErrorText(e), 'err'); }
+  }
+  await openRepo(repo);
+  if (pagesMsg) { watchActions(true); toast(`Created ${repo.name}${pagesMsg}. Upload your site to publish it.`, 'ok'); }
+  else if (!pages) toast(`Created ${repo.name}`, 'ok');
+}
+
+/* ---------- GitHub Pages settings ---------- */
+const STARTER_WORKFLOW = branch => `name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [${branch}]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: \${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4
+`;
+const workflowFiles = () => S.tree.filter(e => e.type === 'blob' && /^\.github\/workflows\/[^/]+\.ya?ml$/i.test(e.path));
+function showPages() {
+  go('pages'); setHeader('GitHub Pages', S.repo.name, [{ icon: 'refresh', label: 'Refresh', fn: loadPages }]);
+  $('#pages-body').innerHTML = loadingHTML('Checking Pages settings');
+  S.pagesForm = null; loadPages();
+}
+async function loadPages() {
+  clearTimeout(S.pagesT);
+  const repo = S.repo;
+  let pg = null, err = null, branches = [];
+  try { pg = await gh(`${R()}/pages`); } catch (e) { if (e.status !== 404) err = e; }
+  if (!S.empty) try { branches = (await gh(`${R()}/branches?per_page=100`)).map(b => b.name); } catch {}
+  if (S.repo !== repo || S.screen !== 'pages') return;
+  S.pagesUrl = pg ? pg.html_url : null;
+  if (!S.pagesForm) S.pagesForm = {
+    src: pg?.build_type === 'workflow' ? 'workflow' : 'branch',
+    branch: pg?.source?.branch || S.branch, path: pg?.source?.path || '/',
+    starter: !workflowFiles().length
+  };
+  renderPages(pg, branches, err);
+  if (pg && pg.status === 'building') S.pagesT = setTimeout(() => S.screen === 'pages' && loadPages(), 6000);
+}
+function renderPages(pg, branches, err) {
+  const f = S.pagesForm, body = $('#pages-body');
+  if (err) { body.innerHTML = `<div class="empty">Couldn't read Pages settings: ${esc(err.message)}</div>`; return; }
+  if (S.empty) {
+    body.innerHTML = `<div class="empty">This repository is empty, so there's nothing to publish yet.<br>Upload your site first, then come back here to turn on Pages.</div><button class="btn" id="pg-up">Upload files</button>`;
+    $('#pg-up').onclick = () => { showBrowser(); addMenu(); }; return;
+  }
+  let html = '';
+  if (pg) {
+    const st = { built: { c: 'ok', l: 'Live' }, building: { c: 'run', l: 'Building' }, errored: { c: 'fail', l: 'Last build failed' } }[pg.status] || { c: 'wait', l: 'Waiting for first build' };
+    const src = pg.build_type === 'workflow' ? 'GitHub Actions workflow' : `${esc(pg.source?.branch)} branch, ${pg.source?.path === '/docs' ? '/docs folder' : 'root folder'}`;
+    html += `<div class="card"><div class="status-line">${stBadge(st)}<span>${st.l}</span></div>
+      <div class="urlrow"><a href="${esc(pg.html_url)}" target="_blank" rel="noopener">${esc(pg.html_url)}</a><button class="mini" id="pg-copy">Copy</button></div>
+      <dl class="meta"><div><dt>Publishing</dt><dd>${src}</dd></div>
+        ${pg.cname ? `<div><dt>Domain</dt><dd>${esc(pg.cname)}</dd></div>` : ''}
+        <div><dt>HTTPS</dt><dd>${pg.https_enforced ? 'Enforced' : 'Not enforced'}</dd></div>
+        ${S.repo.private ? `<div><dt>Visibility</dt><dd>${pg.public === false ? 'Private site' : 'Public site (repo is private)'}</dd></div>` : ''}</dl></div>
+      ${pg.status === 'errored' || pg.build_type === 'workflow' ? `<button class="btn ghost" id="pg-actions" style="margin:0 0 12px">${ic('play')}See deploy runs in Actions</button>` : ''}`;
+  } else {
+    html += `<div class="card" style="padding:14px"><b>Pages is off for this repository.</b><div class="hint" style="margin:6px 0 0">Turn it on to publish your HTML at <b>${esc(pagesUrlFor(S.repo.owner.login, S.repo.name))}</b>.${S.repo.private ? ' Private repos need a paid GitHub plan for Pages.' : ''}</div></div>`;
+  }
+  const wfs = workflowFiles();
+  html += `<div class="sec">${pg ? 'Change how it publishes' : 'Publish from'}</div>
+    <div class="card">
+      <label class="tog"><input type="radio" name="pg-src" value="branch" ${f.src === 'branch' ? 'checked' : ''}><span><b>A branch</b><small>Simplest. Every push to the branch updates the site. Best for plain HTML/JS like yours.</small></span></label>
+      ${f.src === 'branch' ? `
+        <div class="pathin"><label>Branch</label><select id="pg-branch">${(branches.length ? branches : [f.branch]).map(b => `<option ${b === f.branch ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select><span class="chev">${ic('chevron') || ''}</span></div>
+        <div class="pathin"><label>Folder</label><select id="pg-path"><option value="/" ${f.path === '/' ? 'selected' : ''}>/ (root)</option><option value="/docs" ${f.path === '/docs' ? 'selected' : ''}>/docs</option></select></div>` : ''}
+      <label class="tog"><input type="radio" name="pg-src" value="workflow" ${f.src === 'workflow' ? 'checked' : ''}><span><b>GitHub Actions</b><small>A workflow builds and deploys the site. Use this if you have a build step.</small></span></label>
+      ${f.src === 'workflow' ? `
+        <label class="tog"><input type="checkbox" id="pg-starter" ${f.starter ? 'checked' : ''}><span><b>Add a starter deploy workflow</b><small>${wfs.length ? `You have ${wfs.length} workflow file${wfs.length > 1 ? 's' : ''}. Skip this if one already uses actions/deploy-pages.` : 'You have no workflows yet. This adds .github/workflows/pages.yml, which publishes the whole repo on every push.'}</small></span></label>` : ''}
+    </div>
+    ${f.src === 'branch' && f.path === '/docs' && !S.byPath.has('docs') ? `<div class="hint bad">There's no docs folder on ${esc(S.branch)} yet.</div>` : ''}
+    ${f.src === 'workflow' && f.starter && lacksWorkflowScope() ? `<div class="hint bad">${esc(WORKFLOW_HELP)}</div>` : ''}
+    <button class="btn" id="pg-save">${pg ? 'Save changes' : 'Turn on GitHub Pages'}</button>
+    ${pg ? `<button class="btn ghost" id="pg-off" style="color:var(--del)">Turn off Pages</button>` : ''}`;
+  body.innerHTML = html;
+
+  body.querySelectorAll('input[name=pg-src]').forEach(r => r.onchange = () => { f.src = r.value; renderPages(pg, branches, err); });
+  if ($('#pg-branch')) $('#pg-branch').onchange = e => { f.branch = e.target.value; };
+  if ($('#pg-path')) $('#pg-path').onchange = e => { f.path = e.target.value; renderPages(pg, branches, err); };
+  if ($('#pg-starter')) $('#pg-starter').onchange = e => { f.starter = e.target.checked; renderPages(pg, branches, err); };
+  if ($('#pg-copy')) $('#pg-copy').onclick = () => copyText(pg.html_url);
+  if ($('#pg-actions')) $('#pg-actions').onclick = showActions;
+  $('#pg-save').onclick = () => savePages(pg);
+  if ($('#pg-off')) $('#pg-off').onclick = disablePages;
+}
+async function savePages(pg) {
+  const f = S.pagesForm;
+  if (f.src === 'workflow' && f.starter && lacksWorkflowScope()) return toast(WORKFLOW_HELP, 'err');
+  const body = f.src === 'workflow' ? { build_type: 'workflow' } : { build_type: 'legacy', source: { branch: f.branch, path: f.path } };
+  const b = $('#pg-save'); b.disabled = true; b.innerHTML = '<div class="spin"></div>Saving';
+  try {
+    if (pg) await gh(`${R()}/pages`, { method: 'PUT', body: JSON.stringify(body) });
+    else await enablePages(S.repo.full_name, body);
+    // Pages has to be on before the workflow's first run, or that deploy fails
+    if (f.src === 'workflow' && f.starter) {
+      b.innerHTML = '<div class="spin"></div>Adding workflow';
+      const path = S.byPath.has('.github/workflows/pages.yml') ? '.github/workflows/deploy-pages.yml' : '.github/workflows/pages.yml';
+      await commitChanges([{ path, bytes: new TextEncoder().encode(STARTER_WORKFLOW(S.branch)) }], 'Add GitHub Pages deploy workflow');
+      await loadTree();
+      f.starter = false;
+    }
+    toast(pg ? 'Pages settings saved' : 'GitHub Pages is on. The first build is starting.', 'ok');
+    watchActions(true);
+  } catch (e) { toast("Couldn't save: " + friendlyError({ message: pagesErrorText(e) }), 'err'); }
+  S.pagesForm = f; loadPages();
+}
+async function disablePages() {
+  if (!await ask({ title: 'Turn off GitHub Pages?', message: 'The site goes offline. Your files stay in the repo, and you can turn it back on anytime.', ok: 'Turn off', danger: true })) return;
+  try { await gh(`${R()}/pages`, { method: 'DELETE' }); S.pagesUrl = null; S.pagesForm = null; toast('Pages turned off'); loadPages(); }
+  catch (e) { toast("Couldn't turn it off: " + e.message, 'err'); }
+}
+
+/* ---------- Saved push targets + Quick push ---------- */
+const TKEY = 'gm_targets';
+const loadTargets = () => { try { return JSON.parse(localStorage.getItem(TKEY) || '[]'); } catch { return []; } };
+const storeTargets = a => { try { localStorage.setItem(TKEY, JSON.stringify(a.slice(0, 60))); } catch {} };
+// "data-console 2.zip" and "data-console (1).zip" (re-downloads) match "data-console.zip"
+const targetKey = label => label.toLowerCase().trim().replace(/(\s+\d+|\s*\(\d+\))(?=\.zip$)/, '');
+function findTarget(label, repo) {
+  const k = targetKey(label);
+  return loadTargets().filter(t => t.key === k && (!repo || t.repo === repo)).sort((a, b) => b.used - a.used)[0] || null;
+}
+function rememberTargets(st) {
+  let all = loadTargets();
+  for (const src of st.sources) {
+    if (src.kind === 'files') continue;
+    const k = targetKey(src.label);
+    all = all.filter(t => !(t.key === k && t.repo === S.repo.full_name));
+    all.unshift({ key: k, label: src.label, repo: S.repo.full_name, branch: S.branch, target: normPath(st.target), strip: src.common ? src.strip : null, undot: st.undot, mirror: st.mirror, used: Date.now() });
+  }
+  storeTargets(all);
+}
+function quickMenu() {
+  const ts = loadTargets().sort((a, b) => b.used - a.used);
+  openSheet(`<div class="sh-title">Quick push</div>
+    <div class="hint" style="margin:0 10px 12px">Pick ZIPs and they go straight to the repo, folder and settings you used last time. You still get the review screen before anything is pushed.</div>
+    <div style="padding:0 6px"><button class="btn" id="qp-pick" style="margin:0 0 6px">${ic('zip')}Pick ZIPs</button></div>
+    ${ts.length ? `<div class="sec" style="margin-left:12px">Saved targets</div>` + ts.map((t, i) => `
+      <div class="srcrow" style="padding-left:8px"><span class="ico">${ic('zip')}</span>
+        <div class="rmain"><div class="rname">${esc(t.label)}</div><div class="rsub"><span class="cmsg">${esc(t.repo)}/${esc(t.target)} on ${esc(t.branch)}</span></div></div>
+        <button class="more" data-del="${i}" aria-label="Forget">${ic('x')}</button></div>`).join('')
+      : `<div class="hint" style="margin:6px 12px">No saved targets yet. Push a ZIP to a repo once with “Remember these settings” on, and it shows up here.</div>`}`);
+  $('#qp-pick').onclick = () => { closeSheet(); S.quick = true; S.appendStage = false; pick('#in-zip'); };
+  $('#sheet').querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    const t = ts[+b.dataset.del]; storeTargets(loadTargets().filter(x => !(x.key === t.key && x.repo === t.repo))); quickMenu();
+  });
+}
+async function quickPush(files) {
+  const hits = files.map(f => ({ f, t: findTarget(f.name) }));
+  const first = hits.find(h => h.t);
+  if (!first) return toast(`No saved target for ${files.map(f => f.name).join(', ')}. Push it from inside a repo once to remember it.`, 'err');
+  const t = first.t;
+  const mine = hits.filter(h => h.t && h.t.repo === t.repo && h.t.branch === t.branch).map(h => h.f);
+  const skipped = files.filter(f => !mine.includes(f));
+  let repo = S.repos.find(r => r.full_name === t.repo);
+  if (!repo) { try { repo = await gh(`/repos/${t.repo}`); } catch (e) { return toast(`Couldn't open ${t.repo}: ${e.message}`, 'err'); } }
+  if (!await openRepo(repo, t.branch)) return;
+  S.path = S.byPath.get(t.target)?.type === 'tree' ? t.target : '';
+  await processZips(mine, false);
+  if (skipped.length) toast(`Left out (saved for a different repo, or not saved): ${skipped.map(f => f.name).join(', ')}`);
+}
+
+/* ---------- Repo tools ---------- */
+function repoTools() {
+  const f = S.path;
+  sheetMenu(S.repo.full_name, [
+    { label: f ? `Download “${baseName(f)}” as ZIP` : 'Download repo as ZIP', sub: 'Save to Files, then open it in Textastic', icon: 'download', fn: () => downloadZip(f) },
+    { label: 'Releases', sub: 'Tag versions with notes', icon: 'tag', fn: showReleases },
+    { label: 'Make a copy', sub: 'A new repo with these files', icon: 'copy', fn: copyRepo },
+    { label: 'GitHub Pages', icon: 'globe', fn: showPages },
+    { label: 'Actions', icon: 'play', fn: showActions },
+    { label: 'Open on GitHub', icon: 'link', fn: () => window.open(`https://github.com/${S.repo.full_name}/tree/${encPath(S.branch)}/${encPath(f)}`, '_blank') }
+  ]);
+}
+function progressSheet(title) {
+  openSheet(`<div class="sh-title">${esc(title)}</div><div style="padding:0 10px 6px"><div class="ptext" id="pg-t">Starting…</div><div class="bar"><div id="pg-b"></div></div></div>`);
+  return (text, frac) => { const t = $('#pg-t'), b = $('#pg-b'); if (t) t.textContent = text; if (b && frac != null) b.style.width = Math.round(frac * 100) + '%'; };
+}
+
+/* ---------- Download a repo or folder as ZIP ---------- */
+async function downloadZip(folder) {
+  if (S.empty) return toast('This repository is empty');
+  const items = S.tree.filter(e => e.type === 'blob' && (!folder || e.path.startsWith(folder + '/')));
+  if (!items.length) return toast('Nothing to download');
+  const root = folder ? baseName(folder) : S.repo.name, full = S.repo.full_name;
+  const prog = progressSheet(`Preparing ${root}.zip`);
+  try {
+    await loadJSZip();
+    const zip = new JSZip(); let done = 0;
+    await pool(items, 6, async e => {
+      const b = await gh(`/repos/${full}/git/blobs/${e.sha}`);
+      zip.file(root + '/' + (folder ? e.path.slice(folder.length + 1) : e.path), b64ToBytes(b.content), { binary: true });
+      prog(`Downloaded ${++done} of ${items.length} files`, done / items.length);
+    });
+    prog('Compressing', 1);
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    const name = `${root}.zip`;
+    // Saving needs a fresh tap, so hand over a button rather than saving automatically
+    openSheet(`<div class="sh-title">${esc(name)} is ready</div>
+      <div class="hint" style="margin:0 10px 12px">${items.length} files, ${fmtSize(blob.size)}. Choose “Save to Files”, then unzip it where Textastic can see it.</div>
+      <div style="padding:0 6px"><button class="btn" id="dz-save" style="margin:0">${ic('download')}Save ZIP</button></div>`);
+    $('#dz-save').onclick = async () => {
+      const file = new File([blob], name, { type: 'application/zip' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file] }); closeSheet(); return; } catch (e) { if (e.name === 'AbortError') return; }
+      }
+      const url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000); closeSheet();
+    };
+  } catch (err) { closeSheet(); toast("Couldn't build the ZIP: " + err.message, 'err'); }
+}
+
+/* ---------- Diff ---------- */
+const dec = b => new TextDecoder().decode(b).replace(/\r\n/g, '\n');
+function lineDiff(a, b) {
+  let s = 0; while (s < a.length && s < b.length && a[s] === b[s]) s++;
+  let ea = a.length, eb = b.length; while (ea > s && eb > s && a[ea - 1] === b[eb - 1]) { ea--; eb--; }
+  const ops = []; for (let i = 0; i < s; i++) ops.push({ t: '=', ai: i, bi: i });
+  const n = ea - s, m = eb - s;
+  if (n && m && n * m <= 4e6) {
+    const W = m + 1, T = new Uint32Array((n + 1) * W);
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+      T[i * W + j] = a[s + i] === b[s + j] ? T[(i + 1) * W + j + 1] + 1 : Math.max(T[(i + 1) * W + j], T[i * W + j + 1]);
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (a[s + i] === b[s + j]) { ops.push({ t: '=', ai: s + i, bi: s + j }); i++; j++; }
+      else if (T[(i + 1) * W + j] >= T[i * W + j + 1]) ops.push({ t: '-', ai: s + i++ });
+      else ops.push({ t: '+', bi: s + j++ });
+    }
+    while (i < n) ops.push({ t: '-', ai: s + i++ });
+    while (j < m) ops.push({ t: '+', bi: s + j++ });
+  } else { for (let i = s; i < ea; i++) ops.push({ t: '-', ai: i }); for (let j = s; j < eb; j++) ops.push({ t: '+', bi: j }); }
+  for (let k = 0; k < a.length - ea; k++) ops.push({ t: '=', ai: ea + k, bi: eb + k });
+  return ops;
+}
+function diffHTML(oldText, newText) {
+  const A = oldText.split('\n'), B = newText.split('\n'), ops = lineDiff(A, B);
+  let add = 0, del = 0; ops.forEach(o => { if (o.t === '+') add++; else if (o.t === '-') del++; });
+  if (!add && !del) return { add, del, html: '<div class="empty">The contents are identical.</div>' };
+  const keep = new Uint8Array(ops.length);
+  ops.forEach((o, i) => { if (o.t !== '=') for (let k = Math.max(0, i - 3); k <= Math.min(ops.length - 1, i + 3); k++) keep[k] = 1; });
+  let html = '', open = false, shown = 0;
+  for (let i = 0; i < ops.length; i++) {
+    if (!keep[i]) { open = false; continue; }
+    const o = ops[i];
+    if (!open) { html += `<div class="hunk">Line ${(o.bi != null ? o.bi : o.ai) + 1}</div>`; open = true; }
+    if (++shown > 4000) { html += '<div class="hunk">Too many changes to show them all</div>'; break; }
+    const txt = o.t === '+' ? B[o.bi] : A[o.ai];
+    html += `<div class="dl ${o.t === '+' ? 'add' : o.t === '-' ? 'del' : ''}"><span class="ln">${o.ai != null ? o.ai + 1 : ''}</span><span class="ln">${o.bi != null ? o.bi + 1 : ''}</span><span class="dt">${o.t === '=' ? ' ' : o.t === '+' ? '+' : '−'} ${esc(txt)}</span></div>`;
+  }
+  return { add, del, html };
+}
+async function showDiff(o) {
+  S.diff = o; go('diff'); setHeader(o.title, o.sub || '');
+  $('#diff-body').innerHTML = loadingHTML('Comparing');
+  try { o.data = await o.load(); }
+  catch (e) { if (S.diff === o) $('#diff-body').innerHTML = `<div class="empty">Couldn't load this version: ${esc(e.message)}</div>`; return; }
+  if (S.diff === o && S.screen === 'diff') renderDiffBody();
+}
+function renderDiffBody() {
+  const o = S.diff, d = o.data, p = o.path;
+  let body;
+  if (isBinary(d.oldBytes, p) || isBinary(d.newBytes, p)) {
+    const mime = IMG_MIME[extOf(p)];
+    const img = b => b.length && mime ? `<img src="${URL.createObjectURL(new Blob([b], { type: mime }))}" style="max-width:100%;display:block;margin:0 auto">` : '<div class="note">None</div>';
+    body = `<div class="card" style="padding:14px">Binary file: ${fmtSize(d.oldBytes.length)} (${esc(o.oldLabel)}) to ${fmtSize(d.newBytes.length)} (${esc(o.newLabel)})</div>
+      ${mime ? `<div class="actions"><div class="card preview"><div class="sec" style="margin:8px 10px">${esc(o.oldLabel)}</div>${img(d.oldBytes)}</div><div class="card preview"><div class="sec" style="margin:8px 10px">${esc(o.newLabel)}</div>${img(d.newBytes)}</div></div>` : ''}`;
+  } else {
+    const r = diffHTML(dec(d.oldBytes), dec(d.newBytes));
+    body = `<div class="counts"><span class="cnt new">+${r.add}</span><span class="cnt del">−${r.del}</span><span class="cnt">${esc(o.oldLabel)} → ${esc(o.newLabel)}</span></div>
+      <div class="card diffbox"><div class="diff">${r.html}</div></div>`;
+  }
+  $('#diff-body').innerHTML = (o.note ? `<div class="card" style="padding:12px 14px;font-size:14px">${o.note}</div>` : '') +
+    (o.actions?.length ? `<div class="actions" style="margin-bottom:12px">${o.actions.map((a, i) => `<button class="act ${a.primary ? 'primary' : ''}" data-i="${i}">${ic(a.icon)}${esc(a.label)}</button>`).join('')}</div>` : '') + body;
+  $('#diff-body').querySelectorAll('.act').forEach(b => b.onclick = () => o.actions[+b.dataset.i].fn(d));
+}
+const blobBytes = async sha => b64ToBytes((await gh(`${R()}/git/blobs/${sha}`)).content);
+function showStageDiff(p) {
+  const ex = S.byPath.get(p.path);
+  showDiff({ title: baseName(p.path), sub: p.path, path: p.path, oldLabel: 'in repo', newLabel: p.status === 'del' ? 'deleted' : 'your upload',
+    load: async () => ({ oldBytes: ex && ex.type === 'blob' ? await blobBytes(ex.sha) : new Uint8Array(0), newBytes: p.e ? p.e.bytes : new Uint8Array(0) }),
+    back: () => renderStage() });
+}
+
+/* ---------- Restore an older version ---------- */
+async function fileAt(path, ref) {
+  const meta = await gh(`${R()}/contents/${encPath(path)}?ref=${ref}`);
+  if (Array.isArray(meta)) throw new Error('that path is a folder');
+  return { sha: meta.sha, bytes: await blobBytes(meta.sha) };
+}
+function showVersion(path, c) {
+  const cur = S.byPath.get(path), short = c.sha.slice(0, 7);
+  showDiff({
+    title: `Version ${short}`, sub: baseName(path), path, oldLabel: 'current', newLabel: short,
+    note: `<b>${esc(c.commit.message.split('\n')[0])}</b><div class="hint" style="margin:4px 0 0">${esc(c.author?.login || c.commit.author.name)}, ${fmtDate(c.commit.committer.date)}. Red lines are in the file now; green lines are how it looked in this version.</div>`,
+    load: async () => {
+      const old = await fileAt(path, c.sha);
+      return { oldBytes: cur ? await blobBytes(cur.sha) : new Uint8Array(0), newBytes: old.bytes, curSha: cur?.sha, oldSha: old.sha };
+    },
+    actions: [
+      { label: 'Restore this', icon: 'history', primary: true, fn: async d => {
+        if (d.oldSha === d.curSha) return toast('The current file already matches this version');
+        if (!await ask({ title: `Restore ${baseName(path)}?`, message: `It goes back to how it was in ${short}. This is a new commit, so you can undo it the same way.`, ok: 'Restore' })) return;
+        await runCommit([{ path, sha: d.oldSha, mode: cur?.mode || '100644' }], `Restore ${baseName(path)} to ${short}`, path);
+      } },
+      { label: 'On GitHub', icon: 'link', fn: () => window.open(c.html_url, '_blank') }
+    ],
+    back: () => S.file ? reshowFile() : showBrowser()
+  });
+}
+
+/* ---------- Releases ---------- */
+async function showReleases() {
+  go('releases'); setHeader('Releases', S.repo.name, [{ icon: 'plus', label: 'New release', fn: showNewRelease }]);
+  $('#rel-body').innerHTML = loadingHTML('Loading releases');
+  try { S.releases = await gh(`${R()}/releases?per_page=30`); if (S.screen === 'releases') renderReleases(); }
+  catch (e) { $('#rel-body').innerHTML = `<div class="empty">Couldn't load releases: ${esc(e.message)}</div>`; }
+}
+function renderReleases() {
+  const rs = S.releases || [];
+  if (!rs.length) {
+    $('#rel-body').innerHTML = `<div class="empty">No releases yet.<br>A release tags the current version of ${esc(S.repo.name)} with a number and notes, so you and your testers know what changed.</div><button class="btn" id="rel-first">${ic('tag')}Create the first release</button>`;
+    $('#rel-first').onclick = showNewRelease; return;
+  }
+  const latest = rs.find(r => !r.draft && !r.prerelease);
+  $('#rel-body').innerHTML = rs.map((r, i) => `
+    <button class="card rel" data-i="${i}" style="display:block;width:100%;text-align:left">
+      <div class="top"><span class="tagname">${esc(r.tag_name)}</span>${r === latest ? '<span class="badge latest">Latest</span>' : ''}${r.prerelease ? '<span class="badge pre">Pre-release</span>' : ''}${r.draft ? '<span class="badge draft">Draft</span>' : ''}
+        <span class="dur" style="margin-left:auto">${timeAgo(r.published_at || r.created_at)}</span></div>
+      <h4>${esc(r.name || r.tag_name)}</h4>
+      ${r.body ? `<div class="notes">${esc(r.body.replace(/^#+ /gm, '').replace(/\*\*/g, ''))}</div>` : ''}
+    </button>`).join('');
+  $('#rel-body').querySelectorAll('.rel').forEach(b => b.onclick = () => {
+    const r = rs[+b.dataset.i];
+    sheetMenu(r.name || r.tag_name, [
+      { label: 'Open on GitHub', icon: 'link', fn: () => window.open(r.html_url, '_blank') },
+      { label: 'Copy link', icon: 'copy', fn: () => copyText(r.html_url) },
+      { label: 'Delete release', sub: `The ${r.tag_name} tag stays in the repo`, icon: 'trash', danger: true, fn: async () => {
+        if (!await ask({ title: `Delete ${r.name || r.tag_name}?`, ok: 'Delete', danger: true })) return;
+        try { await gh(`${R()}/releases/${r.id}`, { method: 'DELETE' }); toast('Release deleted'); showReleases(); } catch (e) { toast("Couldn't delete: " + e.message, 'err'); }
+      } }
+    ]);
+  });
+}
+function nextVersions() {
+  const vs = (S.releases || []).map(r => { const m = /^(v?)(\d+)\.(\d+)(?:\.(\d+))?/.exec(r.tag_name); return m && { tag: r.tag_name, p: m[1], a: +m[2], b: +m[3], c: +(m[4] || 0) }; })
+    .filter(Boolean).sort((x, y) => y.a - x.a || y.b - x.b || y.c - x.c);
+  const v = vs[0];
+  if (!v) return { patch: 'v1.0.0', minor: 'v1.0.0', major: 'v1.0.0', prev: null };
+  return { patch: `${v.p}${v.a}.${v.b}.${v.c + 1}`, minor: `${v.p}${v.a}.${v.b + 1}.0`, major: `${v.p}${v.a + 1}.0.0`, prev: v.tag };
+}
+async function showNewRelease() {
+  if (S.empty) return toast('Push something first, then you can release it');
+  if (!S.releases) { try { S.releases = await gh(`${R()}/releases?per_page=30`); } catch { S.releases = []; } }
+  const nv = nextVersions();
+  go('relnew'); setHeader('New release', `${S.repo.name} on ${S.branch}`);
+  $('#relnew-body').innerHTML = `
+    <div class="card">
+      <div class="pathin"><label for="rn-tag">Version</label><input id="rn-tag" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <div class="chips">${nv.prev ? `<button class="mini" data-v="${esc(nv.patch)}">Fix: ${esc(nv.patch)}</button><button class="mini" data-v="${esc(nv.minor)}">Feature: ${esc(nv.minor)}</button><button class="mini" data-v="${esc(nv.major)}">Big: ${esc(nv.major)}</button>` : '<span class="hint" style="margin:0">First release. v1.0.0 is a good start, or v0.1.0 for an early test build.</span>'}</div>
+      <div class="pathin"><label for="rn-name">Title</label><input id="rn-name" placeholder="Same as version" style="font-family:inherit"></div>
+      <label class="tog"><input type="checkbox" id="rn-pre"><span><b>Pre-release</b><small>Marks it as a test build, not the main version.</small></span></label>
+    </div>
+    <div class="sec">Release notes</div>
+    <textarea id="rn-body" class="field" placeholder="What changed in this version?"></textarea>
+    <button class="btn ghost" id="rn-gen">${ic('history')}Write notes from commits${nv.prev ? ` since ${esc(nv.prev)}` : ''}</button>
+    <div class="hint">This tags the latest commit on ${esc(S.branch)} (${(S.headSha || '').slice(0, 7)}).</div>
+    <button class="btn" id="rn-go">${ic('tag')}Publish release</button>`;
+  $('#rn-tag').value = nv.patch;
+  $('#relnew-body').querySelectorAll('[data-v]').forEach(b => b.onclick = () => { $('#rn-tag').value = b.dataset.v; });
+  $('#rn-gen').onclick = async () => {
+    const tag = $('#rn-tag').value.trim(); if (!tag) return toast('Enter a version first', 'err');
+    const b = $('#rn-gen'); b.disabled = true;
+    try {
+      const g = await gh(`${R()}/releases/generate-notes`, { method: 'POST', body: JSON.stringify({ tag_name: tag, target_commitish: S.branch, previous_tag_name: nv.prev || undefined }) });
+      $('#rn-body').value = g.body || ''; if (!$('#rn-name').value) $('#rn-name').value = g.name || '';
+    } catch (e) { toast("Couldn't write notes: " + e.message, 'err'); }
+    b.disabled = false;
+  };
+  $('#rn-go').onclick = async () => {
+    const tag = $('#rn-tag').value.trim();
+    if (!tag || /\s/.test(tag)) return toast('Versions can’t be empty or contain spaces', 'err');
+    if (S.releases.some(r => r.tag_name === tag)) return toast(`${tag} already exists`, 'err');
+    const b = $('#rn-go'); b.disabled = true; b.innerHTML = '<div class="spin"></div>Publishing';
+    try {
+      await gh(`${R()}/releases`, { method: 'POST', body: JSON.stringify({ tag_name: tag, target_commitish: S.branch, name: $('#rn-name').value.trim() || tag, body: $('#rn-body').value, prerelease: $('#rn-pre').checked }) });
+      toast(`Released ${tag}`, 'ok'); S.releases = null; showReleases();
+    } catch (e) { toast("Couldn't publish: " + e.message, 'err'); b.disabled = false; b.innerHTML = `${ic('tag')}Publish release`; }
+  };
+}
+
+/* ---------- Make a copy of a repo ---------- */
+async function copyRepo() {
+  if (S.empty) return toast('This repository is empty');
+  let name = await ask({ title: 'Make a copy', message: `Creates a new ${S.repo.private ? 'private' : 'public'} repo with every file from ${S.repo.name} on ${S.branch}. The commit history isn't copied.`, input: `${S.repo.name}-copy`, ok: 'Copy' });
+  if (name === null) return;
+  name = name.trim().replace(/\s+/g, '-');
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) return toast('Use only letters, numbers, dashes, dots and underscores', 'err');
+  const src = S.repo, srcSha = S.headSha, blobs = S.tree.filter(e => e.type === 'blob');
+  const skipped = lacksWorkflowScope() ? blobs.filter(e => isWorkflow(e.path)) : [];
+  const list = blobs.filter(e => !skipped.includes(e));
+  const prog = progressSheet(`Copying to ${name}`);
+  try {
+    prog('Creating the repository', 0);
+    const repo = await gh('/user/repos', { method: 'POST', body: JSON.stringify({ name, description: src.description || undefined, private: src.private, auto_init: true }) });
+    S.repos.unshift(repo);
+    const dst = `/repos/${repo.full_name}`;
+    let ref;
+    for (let i = 0; i < 6 && !ref; i++) { try { ref = await gh(`${dst}/git/ref/heads/${encPath(repo.default_branch)}`); } catch { await sleep(1000 * (i + 1)); } }
+    if (!ref) throw new Error('the new repo was not ready in time');
+    const tree = []; let done = 0;
+    await pool(list, 4, async e => {
+      const b = await gh(`/repos/${src.full_name}/git/blobs/${e.sha}`);
+      const nb = await gh(`${dst}/git/blobs`, { method: 'POST', body: JSON.stringify({ content: b.content.replace(/\s/g, ''), encoding: 'base64' }) });
+      tree.push({ path: e.path, mode: e.mode, type: 'blob', sha: nb.sha });
+      prog(`Copied ${++done} of ${list.length} files`, done / list.length);
+    });
+    prog('Creating the first commit', 1);
+    const t = await gh(`${dst}/git/trees`, { method: 'POST', body: JSON.stringify({ tree }) });
+    const c = await gh(`${dst}/git/commits`, { method: 'POST', body: JSON.stringify({ message: `Copy of ${src.full_name} at ${srcSha.slice(0, 7)}`, tree: t.sha, parents: [ref.object.sha] }) });
+    await gh(`${dst}/git/refs/heads/${encPath(repo.default_branch)}`, { method: 'PATCH', body: JSON.stringify({ sha: c.sha }) });
+    closeSheet();
+    await openRepo(repo);
+    toast(skipped.length ? `Copied, except ${skipped.length} workflow file${skipped.length > 1 ? 's' : ''} (token needs the workflow scope)` : `Copied to ${repo.name}. Turn on Pages from the globe icon if you need it.`, skipped.length ? 'err' : 'ok');
+  } catch (e) { closeSheet(); toast("Copy failed: " + (/exists/i.test(e.message) ? 'that name is already taken.' : e.message), 'err'); }
+}
+
+/* ---------- Multi-select ---------- */
+function startSelect(first) {
+  S.sel = new Set(first ? [first] : []); S.selPath = S.path;
+  $('#fab').hidden = true; renderBrowser();
+}
+function endSelect() { S.sel = null; $('#selbar').hidden = true; $('#fab').hidden = S.screen !== 'browser'; renderBrowser(); }
+function toggleSel(path) {
+  S.sel.has(path) ? S.sel.delete(path) : S.sel.add(path);
+  const i = S.kids.findIndex(k => k.path === path), row = $(`#br-list .row[data-i="${i}"]`);
+  if (row) { const on = S.sel.has(path); row.classList.toggle('sel', on); row.querySelector('.chk').innerHTML = on ? ic('check') : ''; }
+  updateSelBar();
+}
+// Every file a selection covers, with folders expanded to what's inside them
+function selectedBlobs() {
+  const out = new Map();
+  for (const p of S.sel || []) {
+    const e = S.byPath.get(p); if (!e) continue;
+    (e.type === 'tree' ? blobsUnder(p) : [e]).forEach(b => out.set(b.path, b));
+  }
+  return [...out.values()];
+}
+function updateSelBar() {
+  const bar = $('#selbar');
+  if (!S.sel || S.screen !== 'browser') { bar.hidden = true; return; }
+  const n = S.sel.size, all = S.kids && n === S.kids.length && n > 0;
+  const files = n ? selectedBlobs() : [];
+  const dirs = [...S.sel].filter(p => S.byPath.get(p)?.type === 'tree').length;
+  bar.hidden = false;
+  bar.innerHTML = `<button class="btn ghost" id="sb-all">${all ? 'None' : 'All'}</button>
+    <div class="count">${n ? `${n} selected` : 'Tap to select'}${n && dirs ? `<small>${files.length} file${files.length === 1 ? '' : 's'} including folder contents</small>` : ''}</div>
+    <button class="btn" id="sb-move" ${n ? '' : 'disabled'}>${ic('folder')}Move</button>
+    <button class="btn danger" id="sb-del" ${n ? '' : 'disabled'} aria-label="Delete">${ic('trash')}</button>`;
+  $('#sb-move').onclick = () => moveItems([...S.sel].map(p => S.byPath.get(p)).filter(Boolean));
+  $('#sb-all').onclick = () => { S.sel = new Set(all ? [] : S.kids.map(k => k.path)); renderBrowser(); };
+  $('#sb-del').onclick = deleteSelected;
+}
+async function deleteSelected() {
+  const files = selectedBlobs(); if (!files.length) return;
+  const names = [...S.sel].map(baseName);
+  const list = names.length <= 4 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
+  if (!await ask({ title: `Delete ${files.length} file${files.length === 1 ? '' : 's'}?`, message: `${list}. Everything goes in one commit, and the files stay in the repository history so you can restore them.`, ok: 'Delete', danger: true })) return;
+  const msg = names.length === 1 ? `Delete ${S.path ? S.path + '/' : ''}${names[0]}` : `Delete ${names.length} items${S.path ? ` in ${S.path}/` : ''}`;
+  const b = $('#sb-del'); if (b) { b.disabled = true; b.innerHTML = '<div class="spin"></div>Deleting'; }
+  const here = S.path;
+  S.sel = null; $('#selbar').hidden = true;
+  await runCommit(files.map(e => ({ path: e.path, delete: true, mode: e.mode, type: e.type })), msg, here);
+}
+
+/* ---------- Back navigation ---------- */
+$('#btn-back').onclick = async () => {
+  switch (S.screen) {
+    case 'browser':
+      if (S.sel) { endSelect(); break; }
+      if (S.path) { S.path = dirName(S.path); renderBrowser(); } else showRepos();
+      break;
+    case 'file': showBrowser(); break;
+    case 'actions': showBrowser(); break;
+    case 'pages': clearTimeout(S.pagesT); showBrowser(); break;
+    case 'newrepo': showRepos(); break;
+    case 'diff': S.diff && S.diff.back ? S.diff.back() : showBrowser(); break;
+    case 'releases': showBrowser(); break;
+    case 'relnew': showReleases(); break;
+    case 'run': clearTimeout(S.runT); S.runId = null; showActions(); break;
+    case 'editor':
+      if (S.edit && $('#ed-text').value !== S.edit.orig && !await ask({ title: 'Discard your edits?', ok: 'Discard', danger: true })) return;
+      if (S.edit && !S.edit.isNew && S.file) { S.edit = null; reshowFile(); } else { S.edit = null; showBrowser(); }
+      break;
+    case 'stage':
+      if (S.stage && !await ask({ title: 'Cancel this upload?', message: 'Nothing has been pushed yet.', ok: 'Cancel upload', danger: true })) return;
+      S.stage = null; showBrowser(); break;
+  }
+};
+
+/* ---------- Start ---------- */
+(async () => {
+  if (S.token) {
+    setHeader('GitMobile', 'Connecting…');
+    if (await auth(S.token, true)) { showRepos(true); return; }
+  }
+  go('login'); setHeader('GitMobile');
+})();
+</script>
+</body>
+</html>
