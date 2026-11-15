@@ -1539,7 +1539,9 @@ async function addSource(kind, list, label) {
       const pre = normPath(st.target) ? normPath(st.target) + '/' : '';
       let kept = 0, stripped = 0;
       for (const e of entries) { if (S.byPath.has(pre + e.rel)) kept++; if (S.byPath.has(pre + e.rel.slice(common.length + 1))) stripped++; }
-      src.strip = stripped > kept || (stripped === kept && kind === 'zip');
+      // A tie (nothing matches yet, as with brand-new recordings in an audio/ folder) unwraps, unless the repo already
+      // has a folder with that name: then the ZIP's folder is meant to land in it (audio/ stays audio/)
+      src.strip = stripped > kept || (stripped === kept && kind === 'zip' && S.byPath.get(pre + common)?.type !== 'tree');
     }
     st.sources.push(src);
     S.stage = st; renderStage();
