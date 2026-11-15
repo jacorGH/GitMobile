@@ -2027,7 +2027,18 @@ async function loadArtifacts(run) {
     <div class="hint" style="margin:8px 12px 10px">Each download is a ZIP. Save it to Files and open it there (for an app build: the .apk or .aab inside).</div></div>`;
   $('#run-arts').querySelectorAll('[data-art]').forEach(b => b.onclick = () => downloadArtifact(arts[+b.dataset.art], run));
 }
+// Big files (an app build is hundreds of MB) are too large for a web page to hold in memory on a phone: Safari downloads
+// them itself, straight to Files, from GitHub's own artifact link (it needs you signed in to github.com in Safari).
+const BIG_ARTIFACT = 120 * 1024 * 1024;
+function artifactPage(a, run) { return `${run.html_url}/artifacts/${a.id}`; }
 async function downloadArtifact(a, run) {
+  if ((a.size_in_bytes || 0) > BIG_ARTIFACT) {
+    openSheet(`<div class="sh-title">${esc(a.name)}.zip</div>
+      <div class="hint" style="margin:0 10px 12px">${fmtSize(a.size_in_bytes)}: too big to hold here without running out of memory. Safari will download it straight to your Downloads folder in Files. If GitHub asks, sign in once in Safari.</div>
+      <div style="padding:0 6px"><button class="btn" id="art-safari" style="margin:0">${ic('download')}Download in Safari</button></div>`);
+    $('#art-safari').onclick = () => { window.open(artifactPage(a, run), '_blank'); closeSheet(); };
+    return;
+  }
   const prog = progressSheet(`Downloading ${a.name}`);
   try {
     prog('Asking GitHub for the file…', 0.05);
