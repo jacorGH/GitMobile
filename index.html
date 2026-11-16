@@ -2029,7 +2029,7 @@ async function loadArtifacts(run) {
 }
 // Big files (an app build is hundreds of MB) are too large for a web page to hold in memory on a phone: Safari downloads
 // them itself, straight to Files, from GitHub's own artifact link (it needs you signed in to github.com in Safari).
-const BIG_ARTIFACT = 120 * 1024 * 1024;
+const BIG_ARTIFACT = 320 * 1024 * 1024;   // up to ~300 MB downloads fine here on an iPhone (tested); bigger ones go to Safari
 function artifactPage(a, run) { return `${run.html_url}/artifacts/${a.id}`; }
 async function downloadArtifact(a, run) {
   if ((a.size_in_bytes || 0) > BIG_ARTIFACT) {

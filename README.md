@@ -49,7 +49,7 @@ Editing code on an iPhone (in Textastic or similar) is easy. Getting a project w
 - Live GitHub Actions status after every push: running, failed (with the failing step and log), or "New version is live"
 - **Run a workflow** by hand (any workflow with `workflow_dispatch`), answering its inputs, then watch the new run
 - **Downloads**: a finished run's artifacts (an app build, a report), saved to Files through the share sheet. Files over
-  120 MB (an app build) are handed to Safari, which downloads them straight to Files without holding them in memory
+  320 MB (two app builds together) are handed to Safari, which downloads them straight to Files without holding them in memory
   (sign in to github.com in Safari once)
 - **Secrets for Actions**: add, replace and delete repository secrets, typed or read from a file (a `.p8` key, a JSON). Each value is sealed on the phone with the repository's public key before it is sent
 - Re-run or cancel workflow runs
