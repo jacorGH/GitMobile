@@ -28,6 +28,9 @@
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
   font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
+/* The page itself never scrolls (only the screens inside it do), so iPhone can't drag or bounce the whole app */
+html,body{overflow:hidden;overscroll-behavior:none}
+body{position:fixed;inset:0}
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
 input,textarea{font:inherit;color:var(--text)}
 [hidden]{display:none!important}
@@ -42,7 +45,7 @@ header{display:flex;align-items:center;gap:8px;padding:calc(10px + env(safe-area
 #h-title{font-weight:650;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #h-sub{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hact{display:flex;gap:2px}
-main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
 .scr{display:none}.scr.on{display:block}
 #scr-editor.on{display:flex;flex-direction:column;height:100%}
 
@@ -245,7 +248,7 @@ main.flush{padding-bottom:0;overflow:hidden}
 .lf{display:block;margin-top:12px}
 .lf-top{display:flex;align-items:baseline;gap:8px;margin-bottom:5px}
 .lf-top b{font-size:14.5px}.lf-top small{color:var(--muted);font-size:12px;flex:1}
-.cnt{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}.cnt.over{color:var(--del);font-weight:700}
+.lcnt{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}.lcnt.over{color:var(--del);font-weight:700}
 .lf textarea.field{resize:vertical;font-family:inherit;line-height:1.4}
 .kv{display:flex;align-items:center;gap:8px;margin-top:6px;color:var(--text)}
 .kv small{color:var(--muted);min-width:72px;font-size:12px;margin:0}.kv .mono{flex:1;font-size:13px;word-break:break-all}
@@ -1204,7 +1207,14 @@ async function edSave() {
 // Keep the app sized to the visible area so the key bar sits right above the iPhone keyboard
 if (window.visualViewport) {
   const vv = window.visualViewport;
-  const fit = () => { const r = document.documentElement.style; r.setProperty('--vvh', vv.height + 'px'); r.setProperty('--vvt', vv.offsetTop + 'px'); };
+  // Follow the visible area's offset only while the keyboard is up; otherwise a drag that reached the page would
+  // move the whole app against the finger
+  const fit = () => {
+    const de = document.documentElement, r = de.style, typing = vv.height < de.clientHeight - 80;
+    r.setProperty('--vvh', vv.height + 'px');
+    r.setProperty('--vvt', (typing ? vv.offsetTop : 0) + 'px');
+    if (!typing && (window.scrollY || window.scrollX)) window.scrollTo(0, 0);
+  };
   vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
 }
 
@@ -3157,7 +3167,7 @@ function renderRelease() {
     <h3 class="sec-h">Listing</h3>
     <div class="seg" id="rl-langs">${REL.langs.map(l => `<button class="${l === REL.lang ? 'on' : ''}" data-l="${l}">${l.toUpperCase()}</button>`).join('')}</div>
     <div class="card" style="padding:4px 14px 12px">${LISTING_FIELDS.map(([k, label, max, where, big]) => `
-      <label class="lf"><span class="lf-top"><b>${esc(label)}</b><small>${esc(where)}</small><span class="cnt" data-c="${k}"></span></span>
+      <label class="lf"><span class="lf-top"><b>${esc(label)}</b><small>${esc(where)}</small><span class="lcnt" data-c="${k}"></span></span>
         ${big ? `<textarea class="field" rows="${k === 'description' ? 8 : 3}" data-f="${k}" data-max="${max}">${esc(L[k] || '')}</textarea>` : `<input class="field" data-f="${k}" data-max="${max}" value="${esc(L[k] || '')}">`}</label>`).join('')}
       <div class="hint" style="margin:6px 0 0">Support, privacy and marketing links are filled in from the website automatically.</div>
     </div>
