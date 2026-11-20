@@ -236,6 +236,7 @@ main.flush{padding-bottom:0;overflow:hidden}
 .keyrow:last-child{border-bottom:0}
 .keyrow>.i:last-child{width:16px;height:16px;color:var(--muted);flex-shrink:0;transform:rotate(-90deg)}
 #release-body a,#newgame-body a,#studio-body a{color:var(--accent);text-decoration:none;word-break:break-all}
+.card.steps{padding:0;font-size:inherit}
 .steps .step{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-bottom:1px solid var(--line);font-size:15px}
 .steps .step:last-child{border-bottom:0}
 .steps .step small{display:block;color:var(--muted);font-size:12.5px}
@@ -392,6 +393,7 @@ textarea.field{font:14px/1.5 var(--mono);resize:vertical;min-height:160px}
     <section id="scr-stage" class="scr"><div class="pad" id="stage-body"></div></section>
     <section id="scr-studio" class="scr"><div class="pad" id="studio-body"></div></section>
     <section id="scr-newgame" class="scr"><div class="pad" id="newgame-body"></div></section>
+    <section id="scr-convert" class="scr"><div class="pad" id="convert-body"></div></section>
     <section id="scr-release" class="scr"><div class="pad" id="release-body"></div></section>
   </main>
 </div>
@@ -2884,6 +2886,7 @@ function sshKeyPair(comment) {
 function studioMenu() {
   sheetMenu('Studio', [
     { label: 'New game', sub: 'A private repo and a public release repo, linked', icon: 'game', fn: showNewGame },
+    { label: 'Convert an existing game', sub: 'Move a game you already have into the studio', icon: 'swap', fn: showConvert },
     { label: 'Studio setup and store keys', sub: 'Organization, template, Apple and Google keys', icon: 'key', fn: showStudio }
   ]);
 }
@@ -3029,21 +3032,10 @@ function showNewGame() {
   });
   setTimeout(() => $('#ng-name').focus(), 100);
 }
-async function createGame(g) {
-  $('#ng-go').disabled = true;
-  try { await loadNaCl(); } catch (e) { $('#ng-go').disabled = false; return toast(e.message, 'err'); }
-  ['ng-name', 'ng-slug', 'ng-id', 'ng-src', 'ng-rel', 'ng-full', 'ng-domain'].forEach(id => { $('#' + id).disabled = true; });
-  const gameKey = randomKey(32);
-  let androidPw = null, branch = 'main';
-  const steps = [
-    ['Make the private repository from your template', async () => {
-      const have = await repoExists(g.src);
-      if (have) { if (!have.private) throw new Error(`${g.src} already exists and is public; choose another name`); branch = have.default_branch; return 'already there'; }
-      const r = await gh(`/repos/${g.template}/generate`, { method: 'POST', body: JSON.stringify({ owner: g.src.split('/')[0], name: g.src.split('/')[1], private: true, description: `${g.name}: the game (private)` }) });
-      branch = r.default_branch || 'main';
-      for (let i = 0; i < 40; i++) { try { await gh(`/repos/${g.src}/git/ref/heads/${branch}`); return; } catch { await sleep(1500); } }
-      throw new Error('GitHub is still copying the template; tap Try again in a minute');
-    }],
+// The steps every game shares, new or converted: the release repository, the link between the two, the secrets and
+// the website. ctx collects what the finish panel shows.
+function releaseSteps(g, ctx) {
+  return [
     ['Make the public release repository', async () => {
       const have = await repoExists(g.rel);
       if (have) { if (have.private) throw new Error(`${g.rel} exists and is private; the release repository must be public`); return 'already there'; }
@@ -3051,7 +3043,7 @@ async function createGame(g) {
         description: `${g.name}: store builds and website`, has_issues: false, has_wiki: false, has_projects: false, homepage: g.domain ? 'https://' + g.domain : undefined }) });
     }],
     ['Link them with a deploy key', async () => {
-      if (await hasSecret(`/repos/${g.src}`, 'RELEASE_DEPLOY_KEY') && (await gh(`/repos/${g.rel}/keys`)).some(k => /^Publish from /.test(k.title))) return 'already linked';
+      if (await hasSecret(`/repos/${g.src}`, 'RELEASE_DEPLOY_KEY') && (await gh(`/repos/${g.rel}/keys`)).some(k => /^Publish from /.test(k.title))) { await putVariable(g.src, 'RELEASE_REPO', g.rel); return 'already linked'; }
       await loadNaCl();
       for (const k of await gh(`/repos/${g.rel}/keys`)) if (/^Publish from /.test(k.title)) await gh(`/repos/${g.rel}/keys/${k.id}`, { method: 'DELETE' });
       const kp = sshKeyPair(`publish@${g.src.split('/')[1]}`);
@@ -3060,19 +3052,59 @@ async function createGame(g) {
       await putVariable(g.src, 'RELEASE_REPO', g.rel);
     }],
     ['Set the game’s secrets', async () => {
-      await putSecret(`/repos/${g.src}`, 'GAME_KEY', gameKey);
-      await putSecret(`/repos/${g.rel}`, 'GAME_KEY', gameKey);
-      if (!await hasSecret(`/repos/${g.rel}`, 'ANDROID_KEY_PASSWORD')) { androidPw = randomKey(18); await putSecret(`/repos/${g.rel}`, 'ANDROID_KEY_PASSWORD', androidPw); }
+      ctx.gameKey = ctx.gameKey || randomKey(32);
+      await putSecret(`/repos/${g.src}`, 'GAME_KEY', ctx.gameKey);
+      await putSecret(`/repos/${g.rel}`, 'GAME_KEY', ctx.gameKey);
+      if (!await hasSecret(`/repos/${g.rel}`, 'ANDROID_KEY_PASSWORD')) { ctx.androidPw = randomKey(18); await putSecret(`/repos/${g.rel}`, 'ANDROID_KEY_PASSWORD', ctx.androidPw); }
     }],
     ['Turn on the website', async () => {
       try { await gh(`/repos/${g.rel}/pages`, { method: 'POST', body: JSON.stringify({ build_type: 'workflow' }) }); }
       catch (e) { if (e.status !== 409) throw e; }
       if (g.domain) await gh(`/repos/${g.rel}/pages`, { method: 'PUT', body: JSON.stringify({ cname: g.domain }) });
+    }]
+  ];
+}
+// Runs steps one by one with a tick list; a failed step can be tried again and the finished ones are skipped
+function runSteps(box, steps, onDone) {
+  const state = steps.map(() => 'wait'), notes = [];
+  const paint = (err) => {
+    box.innerHTML = `<div class="card steps" style="margin-top:12px">${steps.map((s, i) => `<div class="step ${state[i]}"><span class="ico">${state[i] === 'run' ? '<div class="spin"></div>' : ic(state[i] === 'done' ? 'check' : state[i] === 'fail' ? 'x' : 'clock')}</span><span>${esc(s[0])}${notes[i] ? `<small>${esc(notes[i])}</small>` : ''}</span></div>`).join('')}</div>
+      ${err ? `<div class="hint bad">${esc(err)}</div><button class="btn" id="steps-retry">Try again</button>` : ''}`;
+    if (err) $('#steps-retry').onclick = run;
+  };
+  const run = async () => {
+    for (let i = 0; i < steps.length; i++) {
+      if (state[i] === 'done') continue;
+      state[i] = 'run'; paint();
+      try { const n = await steps[i][1](m => { notes[i] = m; paint(); }); notes[i] = n || ''; state[i] = 'done'; }
+      catch (e) { state[i] = 'fail'; paint(e.message + (e.status === 403 || e.status === 404 ? ' (check your token: repo, workflow and admin:org scopes, and that you own the organization)' : '')); return; }
+    }
+    paint(); onDone();
+  };
+  run();
+}
+const shortNameOf = name => [...name].length <= 12 ? name : name.split(/\s+/).reduce((a, w) => (a ? a + ' ' + w : w).length <= 12 ? (a ? a + ' ' + w : w) : a, '') || name.slice(0, 12);
+
+async function createGame(g) {
+  $('#ng-go').disabled = true;
+  try { await loadNaCl(); } catch (e) { $('#ng-go').disabled = false; return toast(e.message, 'err'); }
+  ['ng-name', 'ng-slug', 'ng-id', 'ng-src', 'ng-rel', 'ng-full', 'ng-domain'].forEach(id => { $('#' + id).disabled = true; });
+  const ctx = {};
+  let branch = 'main';
+  runSteps($('#ng-steps'), [
+    ['Make the private repository from your template', async () => {
+      const have = await repoExists(g.src);
+      if (have) { if (!have.private) throw new Error(`${g.src} already exists and is public; choose another name`); branch = have.default_branch; return 'already there'; }
+      const r = await gh(`/repos/${g.template}/generate`, { method: 'POST', body: JSON.stringify({ owner: g.src.split('/')[0], name: g.src.split('/')[1], private: true, description: `${g.name}: the game (private)` }) });
+      branch = r.default_branch || 'main';
+      for (let i = 0; i < 40; i++) { try { await gh(`/repos/${g.src}/git/ref/heads/${branch}`); return; } catch { await sleep(1500); } }
+      throw new Error('GitHub is still copying the template; tap Try again in a minute');
     }],
+    ...releaseSteps(g, ctx),
     ['Name the game and publish the first version', async () => {
       const app = JSON.parse(await readText(g.src, 'app.json', branch));
-      Object.assign(app, { name: g.name, shortName: [...g.name].length <= 12 ? g.name : g.name.split(/\s+/).reduce((a, w) => (a ? a + ' ' + w : w).length <= 12 ? (a ? a + ' ' + w : w) : a, '') || g.name.slice(0, 12),
-        slug: g.slug, appId: g.appId, web: g.full ? 'full' : 'landing', domain: g.domain, copyright: `© ${new Date().getFullYear()} ${S.user.name || S.user.login}` });
+      Object.assign(app, { name: g.name, shortName: shortNameOf(g.name), slug: g.slug, appId: g.appId, web: g.full ? 'full' : 'landing', domain: g.domain,
+        copyright: `© ${new Date().getFullYear()} ${S.user.name || S.user.login}` });
       if (S.user.name) app.developer = S.user.name;
       const files = { 'app.json': JSON.stringify(app, null, 2) + '\n' };
       for (const l of Object.keys(app.languages || { en: 1 })) {
@@ -3080,41 +3112,455 @@ async function createGame(g) {
       }
       await commitTexts(g.src, branch, files, `Set up ${g.name}`);
     }]
-  ];
-  const box = $('#ng-steps');
-  const state = steps.map(() => 'wait'), notes = [];
-  const paint = (err) => {
-    box.innerHTML = `<div class="card steps" style="margin-top:12px">${steps.map((s, i) => `<div class="step ${state[i]}"><span class="ico">${state[i] === 'run' ? '<div class="spin"></div>' : ic(state[i] === 'done' ? 'check' : state[i] === 'fail' ? 'x' : 'clock')}</span><span>${esc(s[0])}${notes[i] ? `<small>${esc(notes[i])}</small>` : ''}</span></div>`).join('')}</div>
-      ${err ? `<div class="hint bad">${esc(err)}</div><button class="btn" id="ng-retry">Try again</button>` : ''}`;
-    if (err) $('#ng-retry').onclick = run;
-  };
-  const run = async () => {
-    for (let i = 0; i < steps.length; i++) {
-      if (state[i] === 'done') continue;
-      state[i] = 'run'; paint();
-      try { const n = await steps[i][1](); if (n) notes[i] = n; state[i] = 'done'; }
-      catch (e) { state[i] = 'fail'; paint(e.message + (e.status === 403 || e.status === 404 ? ' (check your token: repo, workflow and admin:org scopes, and that you own the organization)' : '')); return; }
-    }
-    paint(); finishGame(g, androidPw);
-  };
-  run();
+  ], () => finishGame(g, ctx, $('#ng-steps')));
 }
-function finishGame(g, androidPw) {
+function finishGame(g, ctx, box) {
   S.repos = [];   // the list now has new repositories
   const site = g.domain ? `https://${g.domain}/` : pagesUrlFor(g.rel.split('/')[0], g.rel.split('/')[1]);
-  $('#ng-steps').insertAdjacentHTML('beforeend', `
-    <h3 class="sec-h">${esc(g.name)} is set up</h3>
-    ${androidPw ? `<div class="card" style="padding:12px 14px"><b>Android key password</b><div class="hint" style="margin:4px 0 8px">Save it in your password manager now. It's saved as a secret too, but GitHub will never show it again, and it unlocks the key Google Play knows this game by.</div>
-      <div class="mono" style="word-break:break-all;font-size:15px">${esc(androidPw)}</div><button class="btn ghost" id="ng-copy" style="margin-top:10px">${ic('copy')}Copy</button></div>` : ''}
+  const pw = ctx.androidPw;
+  const steps = g.converted ? [
+    `The game is publishing now (about a minute). Then its ${g.full ? 'new home' : 'store page'} appears at <a href="${esc(site)}" target="_blank" rel="noopener">${esc(site)}</a>.`,
+    'In Release, check the store listing (drafted from the README when there was one) and add screenshots from the Screenshot Maker.',
+    'Run <b>Android upload key (once)</b> from the Release screen.',
+    'Before the first submission, do the one-time store steps; the Release screen lists them.'
+  ] : [
+    `The first version is publishing now (about a minute). Then the website appears at <a href="${esc(site)}" target="_blank" rel="noopener">${esc(site)}</a>.`,
+    'In the release repository, run <b>Android · make the upload key (once)</b>: from the Release screen.',
+    'Give your AI the private repository\'s zip with <b>START-PROMPT.md</b> filled in.',
+    'Before the first submission, do the one-time store steps; the Release screen lists them.'
+  ];
+  box.insertAdjacentHTML('beforeend', `
+    <h3 class="sec-h">${esc(g.name)} is ${g.converted ? 'converted' : 'set up'}</h3>
+    ${pw ? `<div class="card" style="padding:12px 14px"><b>Android key password</b><div class="hint" style="margin:4px 0 8px">Save it in your password manager now. It's saved as a secret too, but GitHub will never show it again, and it unlocks the key Google Play knows this game by.</div>
+      <div class="mono" style="word-break:break-all;font-size:15px">${esc(pw)}</div><button class="btn ghost" id="fin-copy" style="margin-top:10px">${ic('copy')}Copy</button></div>` : ''}
+    <div class="card" style="padding:4px 14px">${steps.map((s, i) => `<p>${i + 1}. ${s}</p>`).join('')}</div>
+    ${ctx.notes?.length ? `<div class="sub-h">Good to know</div><div class="card" style="padding:4px 14px">${ctx.notes.map(n => `<p>${n}</p>`).join('')}</div>` : ''}
+    <button class="btn" id="fin-open">${ic('repo')}Open ${esc(g.src.split('/')[1])}</button>`);
+  if (pw) $('#fin-copy').onclick = () => copyText(pw);
+  $('#fin-open').onclick = async () => { try { const r = await gh(`/repos/${g.src}`); await openRepo(r); showRelease(); } catch (e) { toast(e.message, 'err'); } };
+}
+
+/* ---- Convert an existing game ---- */
+// Turns a game that lives in one repository (like a single index.html on GitHub Pages) into a studio game, in place:
+// its repository keeps its history, becomes private and is renamed …-source; the game moves into web/; the studio files
+// come from your template; libraries loaded from other sites are copied into the game; and, if you like, a small public
+// page at the old address sends players (and their saved games) to the new one.
+const META_FILE = /^(readme|license|licence|copying|notice|changelog|contributing)(\.[\w]+)?$|^(cname|\.nojekyll|\.gitignore|\.gitattributes|\.editorconfig)$|^\.(github|vscode|idea)\/|^[^/]*\.md$/i;
+// Added to converted games: keeps localStorage saves safe inside the apps, brings saves over from the old web address,
+// and makes Android's back gesture put the game away instead of closing it.
+const STUDIO_BOOT = `// Added by GitMobile when this game joined the studio. Runs before the game.
+(function () {
+  // Saved games carried over from the game's old web address (one time, never overwriting newer saves)
+  var m = location.hash.match(/gm-saves=([^&]+)/);
+  if (m) {
+    try { var o = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); for (var k in o) if (localStorage.getItem(k) === null) localStorage.setItem(k, o[k]); } catch (e) {}
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+  var C = window.Capacitor;
+  if (!(C && C.isNativePlatform && C.isNativePlatform() && C.Plugins)) return;
+  // In the apps, iPhone can clear a web view's storage when space runs low: keep a copy in the app's own settings
+  var P = C.Plugins.Preferences, KEY = 'gm-localStorage';
+  if (P) {
+    if (!localStorage.length && !sessionStorage.getItem('gm-restored')) {
+      sessionStorage.setItem('gm-restored', '1');
+      P.get({ key: KEY }).then(function (r) {
+        if (!r || !r.value) return;
+        var o = JSON.parse(r.value), n = 0; for (var k in o) { localStorage.setItem(k, o[k]); n++; }
+        if (n) location.reload();
+      }).catch(function () {});
+    }
+    var save = function () {
+      var o = {}; for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); o[k] = localStorage.getItem(k); }
+      P.set({ key: KEY, value: JSON.stringify(o) }).catch(function () {});
+    };
+    document.addEventListener('visibilitychange', function () { if (document.hidden) save(); });
+    setInterval(save, 60000);
+  }
+  var A = C.Plugins.App;
+  if (A) A.addListener('backButton', function (e) { if (e && e.canGoBack) history.back(); else A.minimizeApp(); });
+})();
+`;
+function readmeListing(md) {
+  if (!md) return {};
+  const clean = s => s.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/<[^>]+>/g, '')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2').replace(/(\*|_)(\S.*?)\1/g, '$2').replace(/`([^`]+)`/g, '$1').trim();
+  let skip = false, inCode = false, tagline = '';
+  const out = [];
+  for (const raw of md.replace(/\r/g, '').split('\n')) {
+    if (/^\s*```/.test(raw)) { inCode = !inCode; continue; }
+    if (inCode) continue;
+    const h = raw.match(/^(#{1,6})\s+(.*)/);
+    if (h) { if (h[1].length === 1) { skip = false; continue; } skip = /install|setup|set up|running|develop|build|code|files?\b|licen|credit|contribut|tech|deploy|structure|folder|changelog|version|hosting|requirement/i.test(h[2]); if (!skip) out.push('', clean(h[2]).toUpperCase()); continue; }
+    if (skip) continue;
+    const t = raw.match(/^\s*(\*\*|__|\*|_)([^*_].*?)\1\s*$/);
+    if (t && !tagline && !out.join('').trim()) { tagline = clean(t[2]); continue; }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(raw) || /https?:\/\/|github\.(io|com)|<[a-z-]+>/i.test(raw)) continue;   // dividers and links: stores don't show them
+    const li = raw.match(/^\s*[-*+]\s+(.*)/);
+    out.push(li ? '• ' + clean(li[1]) : clean(raw));
+  }
+  let description = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (description.length > 4000) description = description.slice(0, description.lastIndexOf('\n\n', 3990) > 1000 ? description.lastIndexOf('\n\n', 3990) : 3990).trim();
+  const first = (description.split('\n\n').find(p => p && !/^[A-Z0-9 ,.'&-]+$/.test(p) && !p.startsWith('•')) || '').replace(/\s+/g, ' ');
+  const sentence = (first.match(/^.*?[.!?](\s|$)/) || [first])[0].trim();
+  const cut = (s, n) => s.length <= n ? s : s.slice(0, s.lastIndexOf(' ', n - 1) > n / 2 ? s.lastIndexOf(' ', n - 1) : n - 1).replace(/[,;:\s]+$/, '') + '…';
+  return { description, subtitle: tagline && tagline.length <= 30 ? tagline : '', promotionalText: tagline.length > 30 ? cut(tagline, 170) : '', shortDescription: cut(sentence, 80) };
+}
+async function repoBlobText(full, sha) { return new TextDecoder().decode(b64ToBytes((await gh(`/repos/${full}/git/blobs/${sha}`)).content)); }
+async function repoBlobBytes(full, sha) { return b64ToBytes((await gh(`/repos/${full}/git/blobs/${sha}`)).content); }
+async function repoTree(full, branch) {
+  const ref = await gh(`/repos/${full}/git/ref/heads/${encPath(branch)}`);
+  const c = await gh(`/repos/${full}/git/commits/${ref.object.sha}`);
+  const t = await gh(`/repos/${full}/git/trees/${c.tree.sha}?recursive=1`);
+  return { head: ref.object.sha, tree: c.tree.sha, truncated: t.truncated, blobs: t.tree.filter(x => x.type === 'blob') };
+}
+async function analyzeGame(repo) {
+  const full = repo.full_name, branch = repo.default_branch;
+  const T = await repoTree(full, branch);
+  if (T.blobs.some(x => x.path === 'tools/publish.mjs')) throw new Error('This repository is already a studio game.');
+  const idx = T.blobs.filter(x => /(^|\/)index\.html?$/i.test(x.path) && !/(^|\/)(node_modules|vendor|lib|docs?\/api)\//.test(x.path))
+    .sort((a, b) => a.path.split('/').length - b.path.split('/').length)[0];
+  if (!idx) throw new Error('There is no index.html in this repository, so it doesn’t look like a web game.');
+  const root = idx.path.includes('/') ? idx.path.slice(0, idx.path.lastIndexOf('/') + 1) : '';
+  const game = T.blobs.filter(x => x.path.startsWith(root) && !META_FILE.test(x.path.slice(root.length)) && !(root === '' && /^\.github\//.test(x.path)));
+  const html = await repoBlobText(full, idx.sha);
+  const find = n => T.blobs.find(x => x.path.toLowerCase() === (root + n).toLowerCase());
+  let cap = {}, man = {}, readme = '', pages = null;
+  try { const f = find('capacitor.config.json') || T.blobs.find(x => x.path === 'capacitor.config.json'); if (f) cap = JSON.parse(await repoBlobText(full, f.sha)); } catch {}
+  try { const m = (html.match(/<link[^>]+rel=["']manifest["'][^>]*href=["']([^"']+)/i) || [])[1]; const f = m && !/^https?:/.test(m) ? find(m.replace(/^\.?\//, '')) : null; if (f) man = JSON.parse(await repoBlobText(full, f.sha)); } catch {}
+  try { const f = T.blobs.find(x => /^readme(\.md)?$/i.test(x.path)); if (f) readme = await repoBlobText(full, f.sha); } catch {}
+  try { pages = await gh(`/repos/${full}/pages`); } catch {}
+  // the icon: the biggest square picture that calls itself an icon
+  const pics = game.filter(x => /\.(png|jpe?g|webp)$/i.test(x.path));
+  const rank = p => /icon[-_]?1024/i.test(p) ? 0 : /(^|\/)icon\.png$/i.test(p) ? 1 : /apple-touch-icon/i.test(p) ? 2 : /icon|logo/i.test(p) ? 3 : 9;
+  const iconCand = pics.filter(x => rank(x.path) < 9).sort((a, b) => rank(a.path) - rank(b.path) || b.size - a.size)[0];
+  const title = ((html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || '').trim();
+  const outside = [...new Set((html.match(/https:\/\/[^\s"'`()<>]+/g) || []).filter(u => /\.(m?js|css)(\?|$)|fonts\.googleapis\.com\/css|\/npm\/|unpkg\.com|esm\.sh|skypack/.test(u)))];
+  return {
+    repo, full, branch, T, idx, root, game, html, readme, pages, cap, man, title, outside,
+    theme: (html.match(/<meta[^>]+name=["']theme-color["'][^>]*content=["']([^"']+)/i) || [])[1] || man.background_color || man.theme_color || '',
+    icon: iconCand || null,
+    online: /peerjs|new\s+WebSocket|RTCPeerConnection|firebase/i.test(html),
+    workflows: T.blobs.filter(x => /^\.github\/workflows\//.test(x.path)).map(x => x.path.split('/').pop())
+  };
+}
+// Copies every library and font the game loads from other sites into web/vendor/<site>/<path>, keeping their layout so
+// a module's own relative imports still work, and points the page at the copies.
+async function vendorLibraries(html, report) {
+  const files = new Map(), failed = [], done = new Map();   // done: url → local path
+  const rel = (from, to) => { const a = from.split('/').slice(0, -1), b = to.split('/'); while (a.length && b.length && a[0] === b[0]) { a.shift(); b.shift(); } return (a.map(() => '..').join('/') || '.') + '/' + b.join('/'); };
+  const localFor = (u, type) => {
+    const x = new URL(u);
+    let p = 'vendor/' + x.host + decodeURIComponent(x.pathname).replace(/\/$/, '/index').replace(/[^\w./@+-]/g, '_');
+    if (x.search) p += '_' + x.search.slice(1).replace(/[^\w.-]+/g, '_').slice(0, 50);
+    if (!/\.(m?js|css|woff2?|ttf|otf|json|wasm|png|jpe?g|svg|webp)$/i.test(p)) p += type === 'css' ? '.css' : type === 'js' ? '.js' : '';
+    return p;
+  };
+  const fetchOne = async (u, type, depth = 0) => {
+    if (done.has(u)) return done.get(u);
+    if (depth > 6 || files.size > 300) throw new Error('too many files');
+    report(`copying ${new URL(u).host}${new URL(u).pathname.slice(0, 40)}…`);
+    const res = await fetch(u, { mode: 'cors', credentials: 'omit' });
+    if (!res.ok) throw new Error(`${res.status} for ${u}`);
+    const final = res.url || u;
+    const ct = res.headers.get('content-type') || '';
+    const kind = type || (/css/.test(ct) ? 'css' : /javascript|ecmascript/.test(ct) ? 'js' : 'bin');
+    const path = localFor(final, kind);
+    done.set(u, path); done.set(final, path);
+    if (kind === 'css') {
+      let css = await res.text();
+      const urls = [...new Set([...css.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/g)].map(m => m[1]).filter(x => !/^data:/.test(x)))];
+      for (const x of urls) { try { const abs = new URL(x, final).href, lp = await fetchOne(abs, null, depth + 1); css = css.split(x).join(rel(path, lp)); } catch (e) { failed.push(x); } }
+      files.set(path, new TextEncoder().encode(css));
+    } else if (kind === 'module') {
+      let js = await res.text();
+      const specs = [...new Set([...js.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)(['"])((?:\.{1,2}\/|https:\/\/|\/)[^'"]+)\1/g)].map(m => m[2]))];
+      for (const s of specs) { try { const abs = new URL(s, final).href, lp = await fetchOne(abs, 'module', depth + 1); js = js.split(`'${s}'`).join(`'${rel(path, lp)}'`).split(`"${s}"`).join(`"${rel(path, lp)}"`); } catch (e) { failed.push(s); } }
+      files.set(path, new TextEncoder().encode(js));
+    } else files.set(path, new Uint8Array(await res.arrayBuffer()));
+    return path;
+  };
+  const swap = async (u, type) => { try { return './' + await fetchOne(u, type); } catch (e) { failed.push(u); return null; } };
+  let out = html;
+  // <link rel="stylesheet" href="https://…">; preconnects to those sites are no longer needed
+  for (const m of [...out.matchAll(/<link\b[^>]*>/gi)]) {
+    const tag = m[0], href = (tag.match(/href=["'](https:\/\/[^"']+)/i) || [])[1]; if (!href) continue;
+    if (/rel=["'](preconnect|dns-prefetch)/i.test(tag)) { out = out.replace(tag, ''); continue; }
+    if (/rel=["']stylesheet/i.test(tag)) { const lp = await swap(href, 'css'); if (lp) out = out.replace(tag, tag.replace(href, lp)); }
+  }
+  // <script src="https://…">
+  for (const m of [...out.matchAll(/<script\b[^>]*\bsrc=["'](https:\/\/[^"']+)["'][^>]*>/gi)]) {
+    const lp = await swap(m[1], /type=["']module/i.test(m[0]) ? 'module' : 'js'); if (lp) out = out.replace(m[0], m[0].replace(m[1], lp));
+  }
+  // import maps and module scripts written in the page
+  for (const m of [...out.matchAll(/<script\b[^>]*type=["']importmap["'][^>]*>([\s\S]*?)<\/script>/gi)]) {
+    let body = m[1];
+    for (const u of [...new Set(body.match(/https:\/\/[^"'\s]+/g) || [])]) { const lp = await swap(u, u.endsWith('/') ? null : 'module'); if (lp) body = body.split(u).join(lp); }
+    out = out.replace(m[1], body);
+  }
+  for (const m of [...out.matchAll(/<script\b[^>]*type=["']module["'][^>]*>([\s\S]*?)<\/script>/gi)]) {
+    let body = m[1];
+    for (const u of [...new Set([...body.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)['"](https:\/\/[^'"]+)['"]/g)].map(x => x[1]))]) { const lp = await swap(u, 'module'); if (lp) body = body.split(u).join(lp); }
+    out = out.replace(m[1], body);
+  }
+  const left = [...new Set((out.match(/https:\/\/[^\s"'`()<>]+/g) || []).map(u => { try { return new URL(u).host; } catch { return null; } })
+    .filter(h => h && !/w3\.org|github\.com|github\.io|schema\.org|creativecommons|apple\.com|google\.com\/(store|apps)|play\.google\.com/.test(h)))];
+  return { html: out, files, failed: [...new Set(failed)], left };
+}
+async function squareIcon(bytes, size, bg) {
+  const img = await createImageBitmap(new Blob([bytes]));
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const x = c.getContext('2d'); x.fillStyle = bg || '#000'; x.fillRect(0, 0, size, size);
+  const s = Math.min(img.width, img.height); x.imageSmoothingQuality = 'high';
+  x.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+  return pngRGB(x.getImageData(0, 0, size, size).data, size, size);
+}
+// A PNG with no alpha channel at all: Apple rejects app icons that have one, even a fully opaque one, and a
+// canvas always saves with one
+async function pngRGB(rgba, w, h) {
+  const raw = new Uint8Array((w * 3 + 1) * h);
+  for (let y = 0, o = 0; y < h; y++) { raw[o++] = 0; for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; raw[o++] = rgba[i]; raw[o++] = rgba[i + 1]; raw[o++] = rgba[i + 2]; } }
+  const z = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer());
+  const T = pngRGB.crc || (pngRGB.crc = Array.from({ length: 256 }, (_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; }));
+  const chunk = (type, data) => {
+    const out = new Uint8Array(12 + data.length), dv = new DataView(out.buffer);
+    dv.setUint32(0, data.length); for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i); out.set(data, 8);
+    let c = 0xffffffff; for (let i = 4; i < 8 + data.length; i++) c = T[(c ^ out[i]) & 255] ^ (c >>> 8);
+    dv.setUint32(8 + data.length, (c ^ 0xffffffff) >>> 0); return out;
+  };
+  const ihdr = new Uint8Array(13), dv = new DataView(ihdr.buffer); dv.setUint32(0, w); dv.setUint32(4, h); ihdr[8] = 8; ihdr[9] = 2;
+  const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', z), chunk('IEND', new Uint8Array(0))];
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let o = 0; parts.forEach(p => { out.set(p, o); o += p.length; }); return out;
+}
+
+async function showConvert() {
+  const st = studio();
+  if (!st.org || !st.template) { toast('Set up the Studio first: organization and template', 'err'); return showStudio(); }
+  go('convert'); setHeader('Convert a game', `Into a private repo and a release repo in ${st.org}`);
+  const body = $('#convert-body');
+  body.innerHTML = loadingHTML('Loading your repositories');
+  if (!S.repos.length) { try { S.repos = await gh('/user/repos?per_page=100&sort=pushed&affiliation=owner'); } catch (e) { body.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; } }
+  if (S.screen !== 'convert') return;
+  const mine = S.repos.filter(r => r.owner.login === S.user.login && !r.fork && !r.archived && r.full_name !== st.template);
+  body.innerHTML = `
+    <div class="hint" style="margin:4px 4px 12px">Pick a game that lives in one repository today. Its repository keeps its history, becomes private, and the game moves into the studio layout, ready to sell.</div>
+    <div class="card"><div class="pathin"><label for="cv-repo">Game</label><select id="cv-repo" class="field" style="border:0;padding:6px 0;background:none">
+      <option value="">Choose…</option>${mine.map(r => `<option value="${esc(r.full_name)}">${esc(r.name)}${r.private ? ' (private)' : ''}</option>`).join('')}</select></div></div>
+    <div id="cv-form"></div>`;
+  $('#cv-repo').onchange = async () => {
+    const r = mine.find(x => x.full_name === $('#cv-repo').value), box = $('#cv-form');
+    if (!r) { box.innerHTML = ''; return; }
+    box.innerHTML = loadingHTML('Looking at the game');
+    let a;
+    try { a = await analyzeGame(await gh(`/repos/${r.full_name}`)); }
+    catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+    if ($('#cv-repo').value !== r.full_name) return;
+    convertForm(a, st);
+  };
+}
+function convertForm(a, st) {
+  const box = $('#cv-form'), oldName = a.repo.name;
+  const name = (a.cap.appName || a.man.name || a.title.split(/\s+[-|–—:]\s+/)[0] || oldName.replace(/([a-z])([A-Z])/g, '$1 $2')).trim().slice(0, 30);
+  const slug = slugify(name) || slugify(oldName.replace(/([a-z])([A-Z])/g, '$1-$2'));
+  const prefix = st.prefix || defaultPrefix();
+  const oldSite = a.pages?.html_url || '';
+  const iconNote = a.icon ? `${a.icon.path.slice(a.root.length)} → 1024 × 1024 and Google Play's 512 × 512` : 'none found; a placeholder goes in until you add one';
+  box.innerHTML = `
     <div class="card" style="padding:4px 14px">
-      <p>1. The first version is publishing now (about a minute). Then the website appears at <a href="${esc(site)}" target="_blank" rel="noopener">${esc(site)}</a>.</p>
-      <p>2. In the release repository, run <b>Android · make the upload key (once)</b>: from the Release screen.</p>
-      <p>3. Give your AI the private repository's zip with <b>START-PROMPT.md</b> filled in.</p>
-      <p>4. Before the first submission, do the one-time store steps; the Release screen lists them.</p>
+      <p><b>Game files:</b> ${a.game.length} ${a.root ? `in ${esc(a.root)} ` : ''}→ web/${a.T.truncated ? ' <span style="color:var(--del)">(the repository is too big to list whole; some files may be missed)</span>' : ''}</p>
+      <p><b>Icon:</b> ${esc(iconNote)}</p>
+      ${a.outside.length ? `<p><b>Loaded from other sites:</b> ${a.outside.map(u => esc(new URL(u).host)).filter((h, i, s) => s.indexOf(h) === i).join(', ')}</p>` : ''}
+      ${oldSite ? `<p><b>Website now:</b> ${esc(oldSite)}</p>` : ''}
+      ${a.repo.forks_count ? `<p style="color:var(--del)"><b>${a.repo.forks_count} fork${a.repo.forks_count > 1 ? 's' : ''}:</b> people who forked it keep their public copy. Making yours private doesn't take theirs down.</p>` : ''}
     </div>
-    <button class="btn" id="ng-open">${ic('repo')}Open ${esc(g.src.split('/')[1])}</button>`);
-  if (androidPw) $('#ng-copy').onclick = () => copyText(androidPw);
-  $('#ng-open').onclick = async () => { try { const r = await gh(`/repos/${g.src}`); await openRepo(r); showRelease(); } catch (e) { toast(e.message, 'err'); } };
+    <div class="card">
+      <div class="pathin"><label for="cv-name">Name</label><input id="cv-name" value="${esc(name)}" style="font-family:inherit"></div>
+      <div class="pathin"><label for="cv-slug">Short name</label><input id="cv-slug" value="${esc(slug)}" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <div class="pathin"><label for="cv-id">App ID</label><input id="cv-id" value="${esc(a.cap.appId || prefix + slug.replace(/-/g, ''))}" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <div class="pathin"><label for="cv-orient">Screen</label><select id="cv-orient" class="field" style="border:0;padding:6px 0;background:none">
+        ${['portrait', 'landscape', 'any'].map(o => `<option value="${o}" ${o === (/landscape/.test(a.man.orientation || '') ? 'landscape' : /any|natural/.test(a.man.orientation || '') ? 'any' : 'portrait') ? 'selected' : ''}>${o === 'any' ? 'Turns with the phone' : o[0].toUpperCase() + o.slice(1)}</option>`).join('')}</select></div>
+    </div>
+    <div class="card">
+      <div class="pathin"><label for="cv-src">Private repo</label><input id="cv-src" value="${esc(slug)}-source" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <div class="pathin"><label for="cv-rel">Public repo</label><input id="cv-rel" value="${esc(slug)}" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      ${a.outside.length ? `<label class="tog"><input type="checkbox" id="cv-vendor" checked><span><b>Copy outside libraries into the game</b><small>So the app works offline and passes review. ${a.online ? 'Online play still needs the internet.' : ''}</small></span></label>` : ''}
+      <label class="tog"><input type="checkbox" id="cv-full"><span><b>Keep the game playable on the website</b><small>Off: the website becomes a store page and the public repo holds the game only encrypted. Right for games you sell.</small></span></label>
+      ${oldSite ? `<label class="tog"><input type="checkbox" id="cv-redirect" checked><span><b>Keep the old address working</b><small id="cv-redirect-sub"></small></span></label>` : ''}
+      <label class="tog"><input type="checkbox" id="cv-es"><span><b>Spanish store listing too</b><small>Adds a Spanish listing to fill in. The game itself stays as it is.</small></span></label>
+      <div class="pathin"><label for="cv-domain">Domain</label><input id="cv-domain" value="${esc(a.pages?.cname || '')}" placeholder="Optional" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+    </div>
+    <div class="hint" id="cv-hint"></div>
+    <button class="btn danger" id="cv-go">${ic('swap')}Convert ${esc(oldName)}</button>
+    <div id="cv-steps"></div>`;
+  const upd = () => {
+    const src = $('#cv-src').value.trim(), rel = $('#cv-rel').value.trim(), id = $('#cv-id').value.trim(), full = $('#cv-full').checked;
+    const site = $('#cv-domain').value.trim() ? `https://${$('#cv-domain').value.trim()}/` : pagesUrlFor(st.org, rel);
+    if ($('#cv-redirect-sub')) $('#cv-redirect-sub').textContent = `A small public page at ${oldSite} sends players to ${site}${full ? ', bringing their saved games along' : ' (the store page)'}.`;
+    let hint = `${a.full} becomes private and is renamed ${src}, history and all. ${st.org}/${rel} (public) is created, linked and published.${oldSite && !$('#cv-redirect')?.checked ? ` ${oldSite} stops working.` : ''}`, bad = false;
+    if (!/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*){2,}$/.test(id)) { hint = 'App IDs look like com.yourname.game: lowercase, no dashes.' + (a.cap.appId ? '' : ' It can never change once the game is in a store.'); bad = true; }
+    else if (!src || !rel || !$('#cv-name').value.trim()) { hint = 'Fill in the name and both repositories.'; bad = true; }
+    else if ([...$('#cv-name').value.trim()].length > 30) { hint = 'Store names can be 30 characters at most.'; bad = true; }
+    else if (src.toLowerCase() !== oldName.toLowerCase() && S.repos.some(r => r.owner.login === S.user.login && r.name.toLowerCase() === src.toLowerCase())) { hint = `You already have a repository called ${src}.`; bad = true; }
+    $('#cv-hint').textContent = hint; $('#cv-hint').className = 'hint' + (bad ? ' bad' : '');
+    $('#cv-go').disabled = bad;
+  };
+  // the short name, app ID and repository names follow the name until you change them yourself
+  const touched = {};
+  ['cv-slug', 'cv-id', 'cv-src', 'cv-rel'].forEach(id => $('#' + id).addEventListener('input', () => { touched[id] = true; }));
+  $('#cv-name').addEventListener('input', () => {
+    const sl = slugify($('#cv-name').value.trim());
+    if (!sl) return;
+    if (!touched['cv-slug']) $('#cv-slug').value = sl;
+    const cur = $('#cv-slug').value.trim();
+    if (!touched['cv-id'] && !a.cap.appId) $('#cv-id').value = prefix + cur.replace(/-/g, '');
+    if (!touched['cv-src']) $('#cv-src').value = cur + '-source';
+    if (!touched['cv-rel']) $('#cv-rel').value = cur;
+  });
+  box.querySelectorAll('input,select').forEach(el => el.addEventListener('input', upd));
+  box.querySelectorAll('input[type=checkbox]').forEach(el => el.addEventListener('change', upd));
+  upd();
+  $('#cv-go').onclick = async () => {
+    const g = {
+      converted: true, name: $('#cv-name').value.trim(), slug: $('#cv-slug').value.trim(), appId: $('#cv-id').value.trim(), orientation: $('#cv-orient').value,
+      src: `${S.user.login}/${$('#cv-src').value.trim()}`, rel: `${st.org}/${$('#cv-rel').value.trim()}`, full: $('#cv-full').checked,
+      vendor: !!$('#cv-vendor')?.checked, redirect: !!$('#cv-redirect')?.checked, es: $('#cv-es').checked,
+      domain: $('#cv-domain').value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, ''), template: st.template, org: st.org
+    };
+    if (!await ask({ title: `Convert ${oldName}?`, message: `${a.full} becomes private and is renamed ${g.src.split('/')[1]}. Its history is kept.${oldSite ? (g.redirect ? ` ${oldSite} will send players to the new address.` : ` ${oldSite} stops working.`) : ''}`, ok: 'Convert', danger: true })) return;
+    try { await loadNaCl(); } catch (e) { return toast(e.message, 'err'); }
+    box.querySelectorAll('input,select,#cv-go').forEach(el => { el.disabled = true; }); $('#cv-repo').disabled = true;
+    convertGame(a, g);
+  };
+}
+async function convertGame(a, g) {
+  const ctx = { notes: [] }, oldName = a.repo.name, oldFull = a.full, login = S.user.login;
+  const site = g.domain ? `https://${g.domain}/` : pagesUrlFor(g.rel.split('/')[0], g.rel.split('/')[1]);
+  runSteps($('#cv-steps'), [
+    [`Make ${oldName} private as ${g.src.split('/')[1]}`, async () => {
+      const now = await repoExists(g.src);
+      if (now && now.id !== a.repo.id) throw new Error(`${g.src} is another repository; choose another name`);
+      if (!now || !now.private || now.name !== g.src.split('/')[1]) await gh(`/repos/${now ? g.src : oldFull}`, { method: 'PATCH', body: JSON.stringify({ name: g.src.split('/')[1], private: true, description: `${g.name}: the game (private)` }) });
+      try { await gh(`/repos/${g.src}/pages`, { method: 'DELETE' }); } catch {}   // its old website, in case private sites are allowed
+    }],
+    ...releaseSteps(g, ctx),
+    ['Move the game into the studio layout', async (say) => {
+      const T = await repoTree(g.src, a.branch);
+      if (T.blobs.some(x => x.path === 'tools/publish.mjs')) return 'already done';
+      // the studio's files, from the template
+      say('reading your template');
+      const tplRepo = await gh(`/repos/${g.template}`), tpl = await repoTree(g.template, tplRepo.default_branch);
+      const has = p => a.T.blobs.some(x => x.path.toLowerCase() === p.toLowerCase());
+      const want = tpl.blobs.filter(x => !x.path.startsWith('web/') && x.path !== 'START-PROMPT.md' && !(x.path === 'store/listing/es.json' && !g.es)
+        && !(x.path === 'LICENSE' && has('LICENSE')) && !(x.path === '.gitignore' && has('.gitignore')));
+      const text = {}, bin = {};
+      await pool(want, 4, async x => {
+        const b = await repoBlobBytes(g.template, x.sha);
+        try { text[x.path] = new TextDecoder('utf-8', { fatal: true }).decode(b); } catch { bin[x.path] = b; }
+      });
+      if (has('README.md')) { text['STUDIO.md'] = text['README.md']; delete text['README.md']; }
+      const nat = tpl.blobs.find(x => x.path === 'web/js/native.js');
+      const gamePaths = new Set(a.game.map(x => 'web/' + x.path.slice(a.root.length)));
+      if (nat && !gamePaths.has('web/js/native.js')) text['web/js/native.js'] = await repoBlobText(g.template, nat.sha);
+      // the game's page: libraries copied in, and the studio's small start-up script first
+      let html = a.html;
+      if (g.vendor) {
+        say('copying outside libraries');
+        const v = await vendorLibraries(html, say);
+        html = v.html;
+        for (const [p, b] of v.files) bin['web/' + p] = b;
+        if (v.files.size) ctx.notes.push(`Copied ${v.files.size} file${v.files.size > 1 ? 's' : ''} from other sites into web/vendor/.`);
+        if (v.failed.length) ctx.notes.push(`<span style="color:var(--del)">Couldn't copy: ${v.failed.map(esc).join(', ')}.</span> The game still loads ${v.failed.length > 1 ? 'them' : 'it'} from the internet.`);
+        if (v.left.length) ctx.notes.push(`The page still mentions other sites: ${v.left.map(esc).join(', ')}. Anything it loads from them needs the internet.`);
+      }
+      if (!gamePaths.has('web/js/studio-boot.js')) {
+        text['web/js/studio-boot.js'] = STUDIO_BOOT;
+        html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, m => `${m}\n<script src="js/studio-boot.js"><\/script>`) : `<script src="js/studio-boot.js"><\/script>\n` + html;
+      }
+      const index = 'web/' + a.idx.path.slice(a.root.length);
+      text[index] = html;
+      // icons
+      say('making the icons');
+      const bg = /^#[0-9a-f]{3,8}$/i.test(a.theme) ? a.theme : '#000000';
+      if (a.icon) {
+        try { const src = await repoBlobBytes(g.src, a.icon.sha); bin['web/icons/icon-1024.png'] = await squareIcon(src, 1024, bg); bin['store/play-icon.png'] = await squareIcon(src, 512, bg); }
+        catch { ctx.notes.push(`Couldn't read ${esc(a.icon.path)} as a picture; a placeholder icon went in.`); }
+      }
+      if (!bin['web/icons/icon-1024.png']) {
+        const ph = tpl.blobs.find(x => x.path === 'web/icons/icon-1024.png');
+        if (ph) bin['web/icons/icon-1024.png'] = await repoBlobBytes(g.template, ph.sha);
+        ctx.notes.push('Add a real 1024 × 1024 icon in Release → Icons; the template\'s placeholder is in for now.');
+      }
+      // settings and listing
+      const app = JSON.parse(text['app.json']);
+      Object.assign(app, { name: g.name, shortName: shortNameOf(g.name), slug: g.slug, appId: g.appId, web: g.full ? 'full' : 'landing', domain: g.domain, orientation: g.orientation,
+        copyright: `© ${new Date().getFullYear()} ${S.user.name || S.user.login}` });
+      if (S.user.name) app.developer = S.user.name;
+      if (/^#[0-9a-f]{6}$/i.test(a.theme)) app.colors = { ...(app.colors || {}), background: a.theme };
+      if (!g.es && app.languages) app.languages = { en: app.languages.en };
+      text['app.json'] = JSON.stringify(app, null, 2) + '\n';
+      const draft = readmeListing(a.readme);
+      for (const l of Object.keys(app.languages || { en: 1 })) {
+        const p = `store/listing/${l}.json`; if (!text[p]) continue;
+        const L = JSON.parse(text[p]); L.name = g.name;
+        if (l === 'en') {
+          // what the README gives; the optional fields it can't give stay empty rather than keep the template's samples
+          for (const k of ['shortDescription', 'description']) if (draft[k]) L[k] = draft[k];
+          L.subtitle = draft.subtitle || ''; L.promotionalText = draft.promotionalText || ''; L.keywords = '';
+          if (!draft.description) ctx.notes.push('There was no README to draft the store listing from: write it in Release before publishing to the stores.');
+        }
+        text[p] = JSON.stringify(L, null, 2) + '\n';
+      }
+      if (a.branch !== 'main' && text['.github/workflows/publish.yml']) text['.github/workflows/publish.yml'] = text['.github/workflows/publish.yml'].replace('branches: [main]', `branches: [${a.branch}]`);
+      if (text['AGENTS.md']) text['AGENTS.md'] += `\n## This game was converted\n\nIt started as a game in one repository and was moved into this layout by GitMobile. \`web/${a.idx.path.slice(a.root.length)}\` is the game as it was. \`web/js/studio-boot.js\` runs first: in the apps it keeps a copy of the game's localStorage saves and handles Android's back gesture${g.redirect && g.full ? ', and it brings saved games over from the old web address' : ''}. Keep using localStorage the way the game does.${g.vendor ? ' Libraries it used to load from other sites are in `web/vendor/`.' : ''} The rules above apply to new work where they fit; don't rewrite working code just to follow them. Only the English store listing is filled in${g.es ? ' (the Spanish one is a template)' : ''}.\n`;
+      if (a.online) ctx.notes.push('It plays online, so it needs the internet for that. Say so in store/review-notes.txt, and answer the stores\' privacy questions with that in mind.');
+      if (a.workflows.length) ctx.notes.push(`Its own workflows were kept (${a.workflows.map(esc).join(', ')}). Delete any that published the old website.`);
+      if (a.pages?.cname) ctx.notes.push(`Point ${esc(a.pages.cname)}'s DNS (its CNAME record) at ${esc(g.org)}.github.io so the domain follows the game.`);
+      // one commit: move the game, add the rest
+      const entries = new Map();
+      for (const f of a.game) {
+        const to = 'web/' + f.path.slice(a.root.length);
+        if (to !== f.path) entries.set(f.path, { path: f.path, mode: f.mode, type: 'blob', sha: null });
+        entries.set(to, { path: to, mode: f.mode, type: 'blob', sha: f.sha });
+      }
+      for (const [p, c] of Object.entries(text)) entries.set(p, { path: p, mode: '100644', type: 'blob', content: c });
+      const ups = Object.entries(bin); let n = 0;
+      await pool(ups, 2, async ([p, b]) => {
+        const r = await gh(`/repos/${g.src}/git/blobs`, { method: 'POST', body: JSON.stringify({ content: bytesToB64(b), encoding: 'base64' }) });
+        entries.set(p, { path: p, mode: '100644', type: 'blob', sha: r.sha }); say(`uploading ${++n} of ${ups.length} files`);
+      });
+      say('saving');
+      const tree = await gh(`/repos/${g.src}/git/trees`, { method: 'POST', body: JSON.stringify({ base_tree: T.tree, tree: [...entries.values()] }) });
+      const c = await gh(`/repos/${g.src}/git/commits`, { method: 'POST', body: JSON.stringify({ message: `Join the studio: ${g.name}`, tree: tree.sha, parents: [T.head] }) });
+      await gh(`/repos/${g.src}/git/refs/heads/${encPath(a.branch)}`, { method: 'PATCH', body: JSON.stringify({ sha: c.sha }) });
+    }],
+    ...(g.redirect ? [[`Send ${oldName}'s old address to the new one`, async () => {
+      const at = `${login}/${oldName}`, have = await repoExists(at);
+      if (!have || have.full_name.toLowerCase() !== at.toLowerCase()) {
+        await gh('/user/repos', { method: 'POST', body: JSON.stringify({ name: oldName, private: false, auto_init: true, description: `${g.name} has moved to ${site}`, homepage: site, has_issues: false, has_wiki: false, has_projects: false }) });
+        for (let i = 0; i < 20; i++) { try { await gh(`/repos/${at}/git/ref/heads/main`); break; } catch { await sleep(1000); } }
+      }
+      const page = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>${esc(g.name)} has moved</title><link rel="canonical" href="${esc(site)}">
+<script>
+(function () {
+  var to = ${JSON.stringify(site)}, base = ${JSON.stringify('/' + oldName.toLowerCase() + '/')}, carry = ${g.full ? 'true' : 'false'}, hash = location.hash;
+  var p = location.pathname, rest = p.toLowerCase().indexOf(base) === 0 ? p.slice(base.length) : '';
+  if (carry) {
+    to += rest.replace(/^index\\.html$/, '') + location.search;
+    // bring the saved games along; the game keeps any it already has at the new address
+    try { var o = {}, n = 0; for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); o[k] = localStorage.getItem(k); n++; }
+      var s = JSON.stringify(o); if (n && s.length < 1500000) hash = '#gm-saves=' + encodeURIComponent(btoa(unescape(encodeURIComponent(s)))); } catch (e) {}
+  }
+  location.replace(to + hash);
+})();
+<\/script></head>
+<body style="font:17px system-ui;padding:40px 24px;text-align:center"><p>${esc(g.name)} has moved to <a href="${esc(site)}">${esc(site)}</a>.</p></body></html>
+`;
+      await commitTexts(at, 'main', { 'index.html': page, '404.html': page, 'README.md': `# ${g.name}\n\n${g.name} has moved to ${site}\n` }, 'Point to the new address');
+      try { await gh(`/repos/${at}/pages`, { method: 'POST', body: JSON.stringify({ build_type: 'legacy', source: { branch: 'main', path: '/' } }) }); }
+      catch (e) { if (e.status !== 409) throw e; }
+    }]] : [])
+  ], () => finishGame(g, ctx, $('#cv-steps')));
 }
 
 /* ---- Release ---- */
@@ -3353,7 +3799,7 @@ $('#btn-back').onclick = async () => {
     case 'relnew': showReleases(); break;
     case 'run': clearTimeout(S.runT); S.runId = null; showActions(); break;
     case 'secrets': showBrowser(); break;
-    case 'studio': case 'newgame': showRepos(); break;
+    case 'studio': case 'newgame': case 'convert': showRepos(); break;
     case 'release': clearTimeout(REL.runT); showBrowser(); break;
     case 'editor':
       if (S.edit && $('#ed-text').value !== S.edit.orig && !await ask({ title: 'Discard your edits?', ok: 'Discard', danger: true })) return;
