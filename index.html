@@ -2813,6 +2813,9 @@ async function deleteSelected() {
 const STUDIO_KEY = 'gm_studio';
 const studio = () => { try { return JSON.parse(lsGet(STUDIO_KEY) || '{}'); } catch { return {}; } };
 const setStudio = o => lsSet(STUDIO_KEY, JSON.stringify({ ...studio(), ...o }));
+// days until the publishing token expires (null when no date was given)
+const tokenDaysLeft = () => { const e = studio().releaseTokenExp; return e ? Math.ceil((new Date(e + 'T23:59:59') - Date.now()) / 864e5) : null; };
+const tokenWarning = () => { const d = tokenDaysLeft(); return d === null || d > 14 ? '' : d < 0 ? 'The publishing token has expired: publishing stops until you make a new one (Studio setup).' : `The publishing token expires in ${d} day${d === 1 ? '' : 's'}: make a new one in Studio setup.`; };
 const defaultPrefix = () => 'com.' + ((S.user?.name || S.user?.login || 'studio').toLowerCase().replace(/[^a-z0-9]/g, '') || 'studio') + '.';
 const lacksScope = s => Array.isArray(S.scopes) && !S.scopes.includes(s);
 const STORE_KEYS = [
@@ -2913,6 +2916,10 @@ async function showStudio() {
     <div class="hint" id="st-tpl-state"></div>
     ${orgs.length ? '' : `<div class="hint"><a href="https://github.com/account/organizations/new?plan=free" target="_blank" rel="noopener">Create a free organization on GitHub</a> (any plain studio name), then come back and tap ↻.</div>`}
     <button class="btn" id="st-save" style="margin-top:12px">Save</button>
+    <h3 class="sec-h">Release token</h3>
+    <div class="card"><button class="srcrow keyrow" id="st-rtok"><span class="ico" style="color:${st.releaseToken ? 'var(--add)' : 'var(--del)'}">${ic(st.releaseToken ? 'check' : 'x')}</span>
+      <div class="rmain"><div class="rname">Publishing token</div><div class="rsub"><span class="meta" style="${tokenWarning() ? 'color:var(--del)' : ''}">${st.releaseToken ? (tokenWarning() || 'Saved on this phone' + (st.releaseTokenExp ? ' · expires ' + new Date(st.releaseTokenExp + 'T12:00').toLocaleDateString() : '')) : 'Needed before New game or Convert'}</span></div></div>${ic('chevron')}</button></div>
+    <div class="hint">Lets each game's private repo publish to its public repo. One token covers every game.</div>
     <h3 class="sec-h">Store keys</h3>
     <div id="st-keys">${org ? loadingHTML('Checking the organization’s secrets') : '<div class="hint">Choose the organization first.</div>'}</div>`;
   setHeader('Studio', 'Setup and store keys', [{ icon: 'refresh', label: 'Refresh', fn: showStudio }]);
@@ -2936,6 +2943,7 @@ async function showStudio() {
     setStudio({ org: $('#st-org') ? $('#st-org').value : '', template: $('#st-tpl').value.trim(), prefix });
     toast('Saved', 'ok'); showStudio();
   };
+  $('#st-rtok').onclick = () => editReleaseToken($('#st-org') ? $('#st-org').value || org : org);
   if (org) loadOrgKeys(org);
 }
 async function loadOrgKeys(org) {
@@ -2958,6 +2966,48 @@ async function loadOrgKeys(org) {
   });
   box.innerHTML = html + '</div>';
   box.querySelectorAll('.keyrow').forEach(b => b.onclick = () => editOrgKey(org, STORE_KEYS[+b.dataset.k]));
+}
+// The studio's fine-grained token: each game's private repository gets it as RELEASE_TOKEN so its publish workflow can
+// push to the public release repository (organizations block deploy keys by default). Kept on this phone so every new
+// game can be given it; GitHub keeps only sealed copies.
+function editReleaseToken(org) {
+  if (!org) return toast('Choose the organization first', 'err');
+  const st = studio();
+  openSheet(`<div class="sh-title">Publishing token</div>
+    <div style="padding:0 10px 8px">
+      <div class="hint" style="margin:0 2px 10px">On github.com → Settings → Developer settings → Personal access tokens → <b>Fine-grained tokens</b> → Generate new token:<br>
+        · Resource owner: <b>${esc(org)}</b><br>· Repository access: <b>All repositories</b><br>· Permissions: <b>Contents</b> and <b>Workflows</b>, both Read and write<br>· The longest expiration it allows. Put its date below and GitMobile warns you two weeks before.</div>
+      <textarea id="rt-val" class="field mono" rows="2" placeholder="github_pat_…" autocapitalize="off" autocorrect="off" spellcheck="false" style="margin-bottom:8px"></textarea>
+      <div class="pathin" style="margin-bottom:8px;border:1px solid var(--line);border-radius:10px"><label for="rt-exp">Expires</label><input id="rt-exp" type="date" value="${esc(st.releaseTokenExp || '')}"></div>
+      <button class="btn" id="rt-save" style="margin:0 0 8px">${ic('lock')}Check and save</button>
+      ${st.releaseToken ? `<button class="btn ghost" id="rt-all" style="margin:0">${ic('refresh')}Give it to every game again</button>` : ''}
+    </div>`);
+  $('#rt-save').onclick = async () => {
+    const v = $('#rt-val').value.trim(), b = $('#rt-save');
+    if (!/^(github_pat_|ghp_)\w+/.test(v)) return toast('That doesn\'t look like a GitHub token', 'err');
+    b.disabled = true; b.innerHTML = '<div class="spin"></div>Checking';
+    try {
+      const r = await fetch(`${API}/orgs/${encodeURIComponent(org)}/repos?per_page=1`, { headers: { Authorization: 'Bearer ' + v, Accept: 'application/vnd.github+json' } });
+      if (r.status === 401) throw new Error('GitHub doesn\'t recognise that token');
+      if (!r.ok) throw new Error(`GitHub said ${r.status} for ${org}'s repositories: check the resource owner, and approve it in the organization's Settings → Personal access tokens if it's pending`);
+    } catch (e) { b.disabled = false; b.innerHTML = `${ic('lock')}Check and save`; return toast(e.message, 'err'); }
+    setStudio({ releaseToken: v, releaseTokenAt: new Date().toISOString(), releaseTokenExp: $('#rt-exp').value || '' });
+    closeSheet(); toast('Saved. Giving it to your games…', 'ok');
+    await spreadReleaseToken(); showStudio();
+  };
+  if ($('#rt-all')) $('#rt-all').onclick = async () => { closeSheet(); await spreadReleaseToken(); };
+}
+// Every private repository of yours that's linked to a release repository gets the current token
+async function spreadReleaseToken() {
+  const tok = studio().releaseToken; if (!tok) return;
+  let repos = [];
+  try { repos = await gh('/user/repos?per_page=100&affiliation=owner&visibility=private'); } catch (e) { return toast(e.message, 'err'); }
+  let n = 0;
+  for (const r of repos) {
+    try { await gh(`/repos/${r.full_name}/actions/variables/RELEASE_REPO`); } catch { continue; }
+    try { await putSecret(`/repos/${r.full_name}`, 'RELEASE_TOKEN', tok); n++; } catch {}
+  }
+  if (n) toast(`Updated ${n} game${n > 1 ? 's' : ''}`, 'ok');
 }
 function editOrgKey(org, k) {
   openSheet(`<div class="sh-title mono">${esc(k.name)}</div>
@@ -3042,7 +3092,9 @@ function releaseSteps(g, ctx) {
       await gh(`/orgs/${g.org}/repos`, { method: 'POST', body: JSON.stringify({ name: g.rel.split('/')[1], private: false, auto_init: true,
         description: `${g.name}: store builds and website`, has_issues: false, has_wiki: false, has_projects: false, homepage: g.domain ? 'https://' + g.domain : undefined }) });
     }],
-    ['Link them with a deploy key', async () => {
+    ['Link the two repositories', async () => {
+      const tok = studio().releaseToken;
+      if (tok) { await putSecret(`/repos/${g.src}`, 'RELEASE_TOKEN', tok); await putVariable(g.src, 'RELEASE_REPO', g.rel); return; }
       if (await hasSecret(`/repos/${g.src}`, 'RELEASE_DEPLOY_KEY') && (await gh(`/repos/${g.rel}/keys`)).some(k => /^Publish from /.test(k.title))) { await putVariable(g.src, 'RELEASE_REPO', g.rel); return 'already linked'; }
       await loadNaCl();
       for (const k of await gh(`/repos/${g.rel}/keys`)) if (/^Publish from /.test(k.title)) await gh(`/repos/${g.rel}/keys/${k.id}`, { method: 'DELETE' });
@@ -3050,7 +3102,7 @@ function releaseSteps(g, ctx) {
       try { await gh(`/repos/${g.rel}/keys`, { method: 'POST', body: JSON.stringify({ title: `Publish from ${g.src}`, key: kp.publicKey, read_only: false }) }); }
       catch (e) {
         // new organizations turn deploy keys off until an owner allows them
-        if (e.status === 422 && !/already in use|invalid/i.test(e.message)) throw new Error(`GitHub refused the deploy key (${e.message}). New organizations block deploy keys: open github.com/organizations/${g.org}/settings/member_privileges, set Deploy keys to Enabled, Save, then tap Try again`);
+        if (e.status === 422 && !/already in use|invalid/i.test(e.message)) throw new Error(`${g.org} doesn't allow deploy keys (${e.message}). Add the publishing token in Studio setup, then tap Try again`);
         throw e;
       }
       await putSecret(`/repos/${g.src}`, 'RELEASE_DEPLOY_KEY', kp.privateKey);
@@ -3093,6 +3145,7 @@ const shortNameOf = name => [...name].length <= 12 ? name : name.split(/\s+/).re
 async function createGame(g) {
   $('#ng-go').disabled = true;
   try { await loadNaCl(); } catch (e) { $('#ng-go').disabled = false; return toast(e.message, 'err'); }
+  if (!studio().releaseToken && !await ask({ title: 'No publishing token yet', message: 'Without the token from Studio setup, the two repositories can only be linked with a deploy key, and new organizations block those. Carry on anyway?', ok: 'Carry on' })) { $('#ng-go').disabled = false; return; }
   ['ng-name', 'ng-slug', 'ng-id', 'ng-src', 'ng-rel', 'ng-full', 'ng-domain'].forEach(id => { $('#' + id).disabled = true; });
   const ctx = {};
   let branch = 'main';
@@ -3363,18 +3416,26 @@ async function showConvert() {
   };
 }
 function convertForm(a, st) {
-  const box = $('#cv-form'), oldName = a.repo.name;
-  const name = (a.cap.appName || a.man.name || a.title.split(/\s+[-|–—:]\s+/)[0] || oldName.replace(/([a-z])([A-Z])/g, '$1 $2')).trim().slice(0, 30);
-  const slug = slugify(name) || slugify(oldName.replace(/([a-z])([A-Z])/g, '$1-$2'));
+  // a private …-source repo without the studio files is a conversion that stopped after its first step: finish it
+  const resume = a.repo.private && /-source$/i.test(a.repo.name);
+  const base = a.repo.name.replace(/-source$/i, '');
+  const name = (a.cap.appName || a.man.name || a.title.split(/\s+[-|–—:]\s+/)[0] || base.replace(/([a-z])([A-Z])/g, '$1 $2')).trim().slice(0, 30);
+  const box = $('#cv-form');
+  const guessOld = resume ? (slugify(name) === slugify(base) && /^[\w.-]+$/.test(name.replace(/\s+/g, '')) ? name.replace(/\s+/g, '') : base) : a.repo.name;
+  let oldName = guessOld;
+  const slug = slugify(name) || slugify(base.replace(/([a-z])([A-Z])/g, '$1-$2'));
   const prefix = st.prefix || defaultPrefix();
-  const oldSite = a.pages?.html_url || '';
+  const oldSiteFor = n => `https://${S.user.login.toLowerCase()}.github.io/${n}/`;
+  let oldSite = resume ? oldSiteFor(oldName) : a.pages?.html_url || '';
   const iconNote = a.icon ? `${a.icon.path.slice(a.root.length)} → 1024 × 1024 and Google Play's 512 × 512` : 'none found; a placeholder goes in until you add one';
   box.innerHTML = `
+    ${resume ? `<div class="card" style="padding:4px 14px"><p><b>Finishing a conversion.</b> ${esc(a.repo.name)} is already private, so this picks up where it stopped. Check the old name: the redirect goes there.</p>
+      <div class="pathin" style="padding-left:0"><label for="cv-old">Old name</label><input id="cv-old" value="${esc(oldName)}" autocapitalize="off" autocorrect="off" spellcheck="false"></div></div>` : ''}
     <div class="card" style="padding:4px 14px">
       <p><b>Game files:</b> ${a.game.length} ${a.root ? `in ${esc(a.root)} ` : ''}→ web/${a.T.truncated ? ' <span style="color:var(--del)">(the repository is too big to list whole; some files may be missed)</span>' : ''}</p>
       <p><b>Icon:</b> ${esc(iconNote)}</p>
       ${a.outside.length ? `<p><b>Loaded from other sites:</b> ${a.outside.map(u => esc(new URL(u).host)).filter((h, i, s) => s.indexOf(h) === i).join(', ')}</p>` : ''}
-      ${oldSite ? `<p><b>Website now:</b> ${esc(oldSite)}</p>` : ''}
+      ${a.pages?.html_url ? `<p><b>Website now:</b> ${esc(a.pages.html_url)}</p>` : ''}
       ${a.repo.forks_count ? `<p style="color:var(--del)"><b>${a.repo.forks_count} fork${a.repo.forks_count > 1 ? 's' : ''}:</b> people who forked it keep their public copy. Making yours private doesn't take theirs down.</p>` : ''}
     </div>
     <div class="card">
@@ -3385,7 +3446,7 @@ function convertForm(a, st) {
         ${['portrait', 'landscape', 'any'].map(o => `<option value="${o}" ${o === (/landscape/.test(a.man.orientation || '') ? 'landscape' : /any|natural/.test(a.man.orientation || '') ? 'any' : 'portrait') ? 'selected' : ''}>${o === 'any' ? 'Turns with the phone' : o[0].toUpperCase() + o.slice(1)}</option>`).join('')}</select></div>
     </div>
     <div class="card">
-      <div class="pathin"><label for="cv-src">Private repo</label><input id="cv-src" value="${esc(slug)}-source" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <div class="pathin"><label for="cv-src">Private repo</label><input id="cv-src" value="${esc(resume ? a.repo.name : slug + '-source')}" ${resume ? 'disabled' : ''} autocapitalize="off" autocorrect="off" spellcheck="false"></div>
       <div class="pathin"><label for="cv-rel">Public repo</label><input id="cv-rel" value="${esc(slug)}" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
       ${a.outside.length ? `<label class="tog"><input type="checkbox" id="cv-vendor" checked><span><b>Copy outside libraries into the game</b><small>So the app works offline and passes review. ${a.online ? 'Online play still needs the internet.' : ''}</small></span></label>` : ''}
       <label class="tog"><input type="checkbox" id="cv-full"><span><b>Keep the game playable on the website</b><small>Off: the website becomes a store page and the public repo holds the game only encrypted. Right for games you sell.</small></span></label>
@@ -3394,17 +3455,18 @@ function convertForm(a, st) {
       <div class="pathin"><label for="cv-domain">Domain</label><input id="cv-domain" value="${esc(a.pages?.cname || '')}" placeholder="Optional" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
     </div>
     <div class="hint" id="cv-hint"></div>
-    <button class="btn danger" id="cv-go">${ic('swap')}Convert ${esc(oldName)}</button>
+    <button class="btn danger" id="cv-go">${ic('swap')}${resume ? 'Finish converting' : 'Convert'} ${esc(resume ? name : oldName)}</button>
     <div id="cv-steps"></div>`;
   const upd = () => {
+    if (resume && $('#cv-old')) { oldName = $('#cv-old').value.trim() || base; oldSite = oldSiteFor(oldName); }
     const src = $('#cv-src').value.trim(), rel = $('#cv-rel').value.trim(), id = $('#cv-id').value.trim(), full = $('#cv-full').checked;
     const site = $('#cv-domain').value.trim() ? `https://${$('#cv-domain').value.trim()}/` : pagesUrlFor(st.org, rel);
     if ($('#cv-redirect-sub')) $('#cv-redirect-sub').textContent = `A small public page at ${oldSite} sends players to ${site}${full ? ', bringing their saved games along' : ' (the store page)'}.`;
-    let hint = `${a.full} becomes private and is renamed ${src}, history and all. ${st.org}/${rel} (public) is created, linked and published.${oldSite && !$('#cv-redirect')?.checked ? ` ${oldSite} stops working.` : ''}`, bad = false;
+    let hint = resume ? `Finishes ${a.full}: ${st.org}/${rel} (public) is linked and published.` : `${a.full} becomes private and is renamed ${src}, history and all. ${st.org}/${rel} (public) is created, linked and published.${oldSite && !$('#cv-redirect')?.checked ? ` ${oldSite} stops working.` : ''}`, bad = false;
     if (!/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*){2,}$/.test(id)) { hint = 'App IDs look like com.yourname.game: lowercase, no dashes.' + (a.cap.appId ? '' : ' It can never change once the game is in a store.'); bad = true; }
     else if (!src || !rel || !$('#cv-name').value.trim()) { hint = 'Fill in the name and both repositories.'; bad = true; }
     else if ([...$('#cv-name').value.trim()].length > 30) { hint = 'Store names can be 30 characters at most.'; bad = true; }
-    else if (src.toLowerCase() !== oldName.toLowerCase() && S.repos.some(r => r.owner.login === S.user.login && r.name.toLowerCase() === src.toLowerCase())) { hint = `You already have a repository called ${src}.`; bad = true; }
+    else if (src.toLowerCase() !== a.repo.name.toLowerCase() && src.toLowerCase() !== oldName.toLowerCase() && S.repos.some(r => r.owner.login === S.user.login && r.name.toLowerCase() === src.toLowerCase())) { hint = `You already have a repository called ${src}.`; bad = true; }
     $('#cv-hint').textContent = hint; $('#cv-hint').className = 'hint' + (bad ? ' bad' : '');
     $('#cv-go').disabled = bad;
   };
@@ -3417,7 +3479,7 @@ function convertForm(a, st) {
     if (!touched['cv-slug']) $('#cv-slug').value = sl;
     const cur = $('#cv-slug').value.trim();
     if (!touched['cv-id'] && !a.cap.appId) $('#cv-id').value = prefix + cur.replace(/-/g, '');
-    if (!touched['cv-src']) $('#cv-src').value = cur + '-source';
+    if (!touched['cv-src'] && !resume) $('#cv-src').value = cur + '-source';
     if (!touched['cv-rel']) $('#cv-rel').value = cur;
   });
   box.querySelectorAll('input,select').forEach(el => el.addEventListener('input', upd));
@@ -3425,19 +3487,20 @@ function convertForm(a, st) {
   upd();
   $('#cv-go').onclick = async () => {
     const g = {
-      converted: true, name: $('#cv-name').value.trim(), slug: $('#cv-slug').value.trim(), appId: $('#cv-id').value.trim(), orientation: $('#cv-orient').value,
+      converted: true, oldName, name: $('#cv-name').value.trim(), slug: $('#cv-slug').value.trim(), appId: $('#cv-id').value.trim(), orientation: $('#cv-orient').value,
       src: `${S.user.login}/${$('#cv-src').value.trim()}`, rel: `${st.org}/${$('#cv-rel').value.trim()}`, full: $('#cv-full').checked,
       vendor: !!$('#cv-vendor')?.checked, redirect: !!$('#cv-redirect')?.checked, es: $('#cv-es').checked,
       domain: $('#cv-domain').value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, ''), template: st.template, org: st.org
     };
-    if (!await ask({ title: `Convert ${oldName}?`, message: `${a.full} becomes private and is renamed ${g.src.split('/')[1]}. Its history is kept.${oldSite ? (g.redirect ? ` ${oldSite} will send players to the new address.` : ` ${oldSite} stops working.`) : ''}`, ok: 'Convert', danger: true })) return;
+    if (!studio().releaseToken) { toast('Add the publishing token in Studio setup first', 'err'); return showStudio(); }
+    if (!await ask({ title: resume ? `Finish converting ${g.name}?` : `Convert ${oldName}?`, message: `${resume ? `Picks up where ${a.full} stopped.` : `${a.full} becomes private and is renamed ${g.src.split('/')[1]}. Its history is kept.`}${oldSite ? (g.redirect ? ` ${oldSite} will send players to the new address.` : ` ${oldSite} stops working.`) : ''}`, ok: 'Convert', danger: true })) return;
     try { await loadNaCl(); } catch (e) { return toast(e.message, 'err'); }
     box.querySelectorAll('input,select,#cv-go').forEach(el => { el.disabled = true; }); $('#cv-repo').disabled = true;
     convertGame(a, g);
   };
 }
 async function convertGame(a, g) {
-  const ctx = { notes: [] }, oldName = a.repo.name, oldFull = a.full, login = S.user.login;
+  const ctx = { notes: [] }, oldName = g.oldName || a.repo.name, oldFull = a.full, login = S.user.login;
   const site = g.domain ? `https://${g.domain}/` : pagesUrlFor(g.rel.split('/')[0], g.rel.split('/')[1]);
   runSteps($('#cv-steps'), [
     [`Make ${oldName} private as ${g.src.split('/')[1]}`, async () => {
@@ -3611,6 +3674,7 @@ function renderRelease() {
   const a = REL.app, L = REL.listing[REL.lang] || {}, shots = relShots();
   const site = a.domain ? `https://${a.domain}/` : REL.rel ? pagesUrlFor(REL.rel.split('/')[0], REL.rel.split('/')[1]) : '';
   $('#release-body').innerHTML = `
+    ${tokenWarning() ? `<div class="hint bad" style="margin:0 4px 12px">${esc(tokenWarning())}</div>` : ''}
     ${REL.rel ? '' : `<div class="hint bad" style="margin:0 4px 12px">This repository isn't linked to a release repository (no RELEASE_REPO variable). Studio → New game links them.</div>`}
     <div class="card" style="padding:12px 14px">
       <div style="display:flex;align-items:center;gap:10px"><div style="flex:1"><b style="font-size:17px">${esc(a.name)}</b><div class="hint" style="margin:2px 0 0"><span class="mono">${esc(a.appId)}</span>${REL.rel ? ` · <a href="https://github.com/${esc(REL.rel)}" target="_blank" rel="noopener">${esc(REL.rel)}</a>` : ''}</div></div>
