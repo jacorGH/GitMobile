@@ -588,7 +588,7 @@ async function gh(ep, opts = {}, attempt = 0) {
   }
   if (!res.ok) {
     let m = `HTTP ${res.status}`;
-    try { const j = await res.json(); m = j.message || m; } catch {}
+    try { const j = await res.json(); m = j.message || m; const why = (j.errors || []).map(x => typeof x === 'string' ? x : x.message).filter(Boolean); if (why.length) m += ': ' + why.join('; '); } catch {}
     const ra = +res.headers.get('retry-after') || 0;
     const secondary = (res.status === 403 || res.status === 429) && (ra || /secondary rate|abuse|too many/i.test(m));
     const primary = res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0';
@@ -3047,7 +3047,12 @@ function releaseSteps(g, ctx) {
       await loadNaCl();
       for (const k of await gh(`/repos/${g.rel}/keys`)) if (/^Publish from /.test(k.title)) await gh(`/repos/${g.rel}/keys/${k.id}`, { method: 'DELETE' });
       const kp = sshKeyPair(`publish@${g.src.split('/')[1]}`);
-      await gh(`/repos/${g.rel}/keys`, { method: 'POST', body: JSON.stringify({ title: `Publish from ${g.src}`, key: kp.publicKey, read_only: false }) });
+      try { await gh(`/repos/${g.rel}/keys`, { method: 'POST', body: JSON.stringify({ title: `Publish from ${g.src}`, key: kp.publicKey, read_only: false }) }); }
+      catch (e) {
+        // new organizations turn deploy keys off until an owner allows them
+        if (e.status === 422 && !/already in use|invalid/i.test(e.message)) throw new Error(`GitHub refused the deploy key (${e.message}). New organizations block deploy keys: open github.com/organizations/${g.org}/settings/member_privileges, set Deploy keys to Enabled, Save, then tap Try again`);
+        throw e;
+      }
       await putSecret(`/repos/${g.src}`, 'RELEASE_DEPLOY_KEY', kp.privateKey);
       await putVariable(g.src, 'RELEASE_REPO', g.rel);
     }],
@@ -3533,7 +3538,10 @@ async function convertGame(a, g) {
       await gh(`/repos/${g.src}/git/refs/heads/${encPath(a.branch)}`, { method: 'PATCH', body: JSON.stringify({ sha: c.sha }) });
     }],
     ...(g.redirect ? [[`Send ${oldName}'s old address to the new one`, async () => {
-      const at = `${login}/${oldName}`, have = await repoExists(at);
+      const at = `${login}/${oldName}`;
+      // a conversion restarted after the rename starts from the private repo itself: never write the redirect there
+      if (at.toLowerCase() === g.src.toLowerCase()) return 'skipped: run from the original repository to set this up';
+      const have = await repoExists(at);
       if (!have || have.full_name.toLowerCase() !== at.toLowerCase()) {
         await gh('/user/repos', { method: 'POST', body: JSON.stringify({ name: oldName, private: false, auto_init: true, description: `${g.name} has moved to ${site}`, homepage: site, has_issues: false, has_wiki: false, has_projects: false }) });
         for (let i = 0; i < 20; i++) { try { await gh(`/repos/${at}/git/ref/heads/main`); break; } catch { await sleep(1000); } }
