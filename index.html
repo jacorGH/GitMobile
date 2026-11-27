@@ -2818,17 +2818,48 @@ const setStudio = o => lsSet(STUDIO_KEY, JSON.stringify({ ...studio(), ...o }));
 // days until the publishing token expires (null when no date was given)
 const tokenDaysLeft = () => { const e = studio().releaseTokenExp; return e ? Math.ceil((new Date(e + 'T23:59:59') - Date.now()) / 864e5) : null; };
 const tokenWarning = () => { const d = tokenDaysLeft(); return d === null || d > 14 ? '' : d < 0 ? 'The publishing token has expired: publishing stops until you make a new one (Studio setup).' : `The publishing token expires in ${d} day${d === 1 ? '' : 's'}: make a new one in Studio setup.`; };
-const defaultPrefix = () => 'com.' + ((S.user?.name || S.user?.login || 'studio').toLowerCase().replace(/[^a-z0-9]/g, '') || 'studio') + '.';
+// Your details: who you are and how players reach you. Nothing personal is built into GitMobile; games, store pages
+// and briefs use what you write here.
+const PROFILE_KEY = 'gm_profile';
+const profile = () => { try { return JSON.parse(lsGet(PROFILE_KEY) || '{}'); } catch { return {}; } };
+const profileReady = () => { const p = profile(); return !!(p.name && p.email); };
+const defaultPrefix = () => { const n = (profile().name || '').toLowerCase().replace(/[^a-z0-9]/g, ''); return n ? `com.${n}.` : ''; };
+const copyrightLine = () => `© ${new Date().getFullYear()} ${profile().name}`;
+function editProfile(after) {
+  const p = profile();
+  openSheet(`<div class="sh-title">Your details</div>
+    <div style="padding:0 10px 8px">
+      <div class="hint" style="margin:0 2px 10px">Used for your games' copyright, store pages and support links, and at the top of every Brief for AI. Kept on this phone.</div>
+      <div class="card" style="margin:0 0 8px">
+        <div class="pathin"><label for="pf-name">Your name</label><input id="pf-name" value="${esc(p.name || '')}" placeholder="${esc(S.user?.name || 'Name for copyright')}" style="font-family:inherit"></div>
+        <div class="pathin"><label for="pf-studio">Studio</label><input id="pf-studio" value="${esc(p.studio || '')}" placeholder="Optional: the name you publish as" style="font-family:inherit"></div>
+        <div class="pathin"><label for="pf-email">Public email</label><input id="pf-email" type="email" value="${esc(p.email || '')}" placeholder="Shown on support pages" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      </div>
+      <button class="btn" id="pf-save" style="margin:0">Save</button>
+    </div>`);
+  $('#pf-save').onclick = () => {
+    const v = { name: $('#pf-name').value.trim(), studio: $('#pf-studio').value.trim(), email: $('#pf-email').value.trim() };
+    if (v.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) return toast('That email doesn\'t look right', 'err');
+    lsSet(PROFILE_KEY, JSON.stringify(v)); closeSheet(); toast('Saved', 'ok'); after && after();
+  };
+}
+// New game and Convert write your name and email into the game: ask for them first
+function needProfile(then) {
+  if (profileReady()) return true;
+  toast('Add your name and public email first', 'err');
+  editProfile(then);
+  return false;
+}
 const lacksScope = s => Array.isArray(S.scopes) && !S.scopes.includes(s);
 const STORE_KEYS = [
-  { name: 'ASC_KEY_ID', group: 'Apple', help: 'App Store Connect → Users and Access → Integrations → App Store Connect API: the key’s ID. The same key The Way uses works for every game.' },
+  { name: 'ASC_KEY_ID', group: 'Apple', help: 'App Store Connect → Users and Access → Integrations → App Store Connect API: the key’s ID. One key works for every game, including apps you already release.' },
   { name: 'ASC_ISSUER_ID', group: 'Apple', help: 'Shown above the list of keys on that same page.' },
   { name: 'ASC_KEY_P8', group: 'Apple', file: true, help: 'The AuthKey_….p8 file you downloaded when you made the key.' },
   { name: 'APPLE_TEAM_ID', group: 'Apple', help: 'developer.apple.com → Account → Membership details → Team ID.' },
-  { name: 'MATCH_GIT_URL', group: 'Signing', help: 'The private repository fastlane match keeps your certificates in (the one The Way uses), like https://github.com/you/certificates.git. One repository signs every game.' },
+  { name: 'MATCH_GIT_URL', group: 'Signing', help: 'The private repository fastlane match keeps your certificates in (if you already sign an app with fastlane match, use the same one), like https://github.com/you/certificates.git. One repository signs every game.' },
   { name: 'MATCH_GIT_TOKEN', group: 'Signing', help: 'A GitHub token that can read and write that certificates repository.' },
   { name: 'MATCH_GIT_USER', group: 'Signing', optional: true, help: 'The GitHub username that token belongs to.' },
-  { name: 'MATCH_PASSWORD', group: 'Signing', help: 'The password the certificates are encrypted with (the same as The Way’s).' },
+  { name: 'MATCH_PASSWORD', group: 'Signing', help: 'The password the certificates are encrypted with (the same one, if you already use match).' },
   { name: 'PLAY_SERVICE_ACCOUNT_JSON', group: 'Google Play', file: true, help: 'The JSON key of a Google Cloud service account that Play Console → Users and permissions has invited with release rights. Only needed to upload to Google Play automatically.' },
   { name: 'REVIEW_FIRST_NAME', group: 'App Review contact', optional: true, help: 'Who Apple’s reviewer contacts about a submission. Only Apple sees these four.' },
   { name: 'REVIEW_LAST_NAME', group: 'App Review contact', optional: true, help: '' },
@@ -2908,12 +2939,14 @@ async function showStudio() {
   const org = st.org && orgs.some(o => o.login === st.org) ? st.org : '';
   body.innerHTML = `
     <div class="hint" style="margin:4px 4px 12px">Games for sale live in two repositories: a private one with the real game, and a public one in your studio organization that builds the apps and the website. Set this up once.</div>
+    <div class="card"><button class="srcrow keyrow" id="st-me"><span class="ico" style="color:${profileReady() ? 'var(--add)' : 'var(--del)'}">${ic(profileReady() ? 'check' : 'x')}</span>
+      <div class="rmain"><div class="rname">Your details</div><div class="rsub"><span class="meta">${profileReady() ? esc([profile().name, profile().studio, profile().email].filter(Boolean).join(' · ')) : 'Name and public email, for your games'}</span></div></div>${ic('chevron')}</button></div>
     <div class="card">
       <div class="pathin"><label for="st-org">Organization</label>
         ${orgs.length ? `<select id="st-org" class="field" style="border:0;padding:6px 0;background:none">${['<option value="">Choose…</option>', ...orgs.map(o => `<option ${o.login === org ? 'selected' : ''}>${esc(o.login)}</option>`)].join('')}</select>`
           : `<span class="hint" style="margin:0">You're not in any organization yet.</span>`}</div>
       <div class="pathin"><label for="st-tpl">Template</label><input id="st-tpl" placeholder="${esc(S.user.login)}/app-starter" value="${esc(st.template || S.user.login + '/app-starter')}" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
-      <div class="pathin"><label for="st-prefix">App IDs</label><input id="st-prefix" value="${esc(st.prefix || defaultPrefix())}" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <div class="pathin"><label for="st-prefix">App IDs</label><input id="st-prefix" value="${esc(st.prefix || defaultPrefix())}" placeholder="com.yourname." autocapitalize="off" autocorrect="off" spellcheck="false"></div>
     </div>
     <div class="hint" id="st-tpl-state"></div>
     ${orgs.length ? '' : `<div class="hint"><a href="https://github.com/account/organizations/new?plan=free" target="_blank" rel="noopener">Create a free organization on GitHub</a> (any plain studio name), then come back and tap ↻.</div>`}
@@ -2945,6 +2978,7 @@ async function showStudio() {
     setStudio({ org: $('#st-org') ? $('#st-org').value : '', template: $('#st-tpl').value.trim(), prefix });
     toast('Saved', 'ok'); showStudio();
   };
+  $('#st-me').onclick = () => editProfile(showStudio);
   $('#st-rtok').onclick = () => editReleaseToken($('#st-org') ? $('#st-org').value || org : org);
   if (org) loadOrgKeys(org);
 }
@@ -3048,6 +3082,7 @@ function editOrgKey(org, k) {
 /* ---- New game ---- */
 const slugify = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 function showNewGame() {
+  if (!needProfile(showNewGame)) return;
   const st = studio();
   if (!st.org || !st.template) { toast('Set up the Studio first: organization and template', 'err'); return showStudio(); }
   go('newgame'); setHeader('New game', `Release repo in ${st.org}`);
@@ -3055,7 +3090,7 @@ function showNewGame() {
     <div class="card">
       <div class="pathin"><label for="ng-name">Name</label><input id="ng-name" placeholder="Starfall" style="font-family:inherit"></div>
       <div class="pathin"><label for="ng-slug">Short name</label><input id="ng-slug" placeholder="starfall" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
-      <div class="pathin"><label for="ng-id">App ID</label><input id="ng-id" placeholder="${esc(st.prefix || defaultPrefix())}starfall" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <div class="pathin"><label for="ng-id">App ID</label><input id="ng-id" placeholder="${esc(st.prefix || defaultPrefix() || 'com.yourname.')}starfall" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
     </div>
     <div class="card">
       <div class="pathin"><label for="ng-src">Private repo</label><input id="ng-src" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
@@ -3072,7 +3107,7 @@ function showNewGame() {
     const name = $('#ng-name').value.trim();
     if (!touched['ng-slug']) $('#ng-slug').value = slugify(name);
     const slug = $('#ng-slug').value.trim();
-    if (!touched['ng-id']) $('#ng-id').value = slug ? (st.prefix || defaultPrefix()) + slug.replace(/-/g, '') : '';
+    if (!touched['ng-id']) $('#ng-id').value = slug && (st.prefix || defaultPrefix()) ? (st.prefix || defaultPrefix()) + slug.replace(/-/g, '') : '';
     if (!touched['ng-src']) $('#ng-src').value = slug ? slug + '-source' : '';
     if (!touched['ng-rel']) $('#ng-rel').value = slug;
     const id = $('#ng-id').value.trim(), src = $('#ng-src').value.trim(), rel = $('#ng-rel').value.trim();
@@ -3174,8 +3209,7 @@ async function createGame(g) {
     ['Name the game and publish the first version', async () => {
       const app = JSON.parse(await readText(g.src, 'app.json', branch));
       Object.assign(app, { name: g.name, shortName: shortNameOf(g.name), slug: g.slug, appId: g.appId, web: g.full ? 'full' : 'landing', domain: g.domain,
-        copyright: `© ${new Date().getFullYear()} ${S.user.name || S.user.login}` });
-      if (S.user.name) app.developer = S.user.name;
+        copyright: copyrightLine(), developer: profile().name, supportEmail: profile().email });
       const files = { 'app.json': JSON.stringify(app, null, 2) + '\n' };
       for (const l of Object.keys(app.languages || { en: 1 })) {
         try { const L = JSON.parse(await readText(g.src, `store/listing/${l}.json`, branch)); L.name = g.name; files[`store/listing/${l}.json`] = JSON.stringify(L, null, 2) + '\n'; } catch {}
@@ -3403,6 +3437,7 @@ async function pngRGB(rgba, w, h) {
 }
 
 async function showConvert() {
+  if (!needProfile(showConvert)) return;
   const st = studio();
   if (!st.org || !st.template) { toast('Set up the Studio first: organization and template', 'err'); return showStudio(); }
   go('convert'); setHeader('Convert a game', `Into a private repo and a release repo in ${st.org}`);
@@ -3436,7 +3471,7 @@ function convertForm(a, st) {
   const guessOld = resume ? (slugify(name) === slugify(base) && /^[\w.-]+$/.test(name.replace(/\s+/g, '')) ? name.replace(/\s+/g, '') : base) : a.repo.name;
   let oldName = guessOld;
   const slug = slugify(name) || slugify(base.replace(/([a-z])([A-Z])/g, '$1-$2'));
-  const prefix = st.prefix || defaultPrefix();
+  const prefix = st.prefix || defaultPrefix() || 'com.yourname.';
   const oldSiteFor = n => `https://${S.user.login.toLowerCase()}.github.io/${n}/`;
   let oldSite = resume ? oldSiteFor(oldName) : a.pages?.html_url || '';
   const iconNote = a.icon ? `${a.icon.path.slice(a.root.length)} → 1024 × 1024 and Google Play's 512 × 512` : 'none found; a placeholder goes in until you add one';
@@ -3572,8 +3607,7 @@ async function convertGame(a, g) {
       // settings and listing
       const app = JSON.parse(text['app.json']);
       Object.assign(app, { name: g.name, shortName: shortNameOf(g.name), slug: g.slug, appId: g.appId, web: g.full ? 'full' : 'landing', domain: g.domain, orientation: g.orientation,
-        copyright: `© ${new Date().getFullYear()} ${S.user.name || S.user.login}` });
-      if (S.user.name) app.developer = S.user.name;
+        copyright: copyrightLine(), developer: profile().name, supportEmail: profile().email });
       if (/^#[0-9a-f]{6}$/i.test(a.theme)) app.colors = { ...(app.colors || {}), background: a.theme };
       if (!g.es && app.languages) app.languages = { en: app.languages.en };
       text['app.json'] = JSON.stringify(app, null, 2) + '\n';
@@ -3872,27 +3906,34 @@ function renderChecklist() {
 // the repository as it is right now (files, settings, its instructions file, recent commits) and how its builds went,
 // with the end of any failed log. Copy it, or share it as a file together with the repository's zip.
 const AI_NOTES_KEY = 'gm_ai_notes', BRIEF_OPTS_KEY = 'gm_brief_opts';
-const AI_NOTES_DEFAULT = `I'm Jacob Cooper, a solo game and app developer. I work entirely from my iPhone.
+// Generic on purpose: what's true for anyone working from GitMobile. Personal facts come from Your details and
+// Studio setup (the "About me" section), and anyone can rewrite this text with Edit.
+const AI_NOTES_DEFAULT = `I work from my iPhone.
 
-How I work
-- I push to GitHub with GitMobile, my own iPhone app: I upload a zip and it commits the files. I edit files in Textastic and test the live GitHub Pages site or the store builds on my phone.
+Files and steps
+- I push to GitHub with GitMobile, an iPhone app: I upload a zip and it commits the files. I test on my phone.
 - Give me finished files as a zip of the whole project, with the repository's name as the top folder and its folders kept as they are. If only a few files change, a zip of just those files, in the same folders, is fine. Say which files changed.
-- Don't give me a copy to play in the chat, and don't ask me to run commands on a computer: anything I do myself happens on my phone, in Safari, GitMobile or App Store Connect.
+- Don't give me a copy to play in the chat, and don't ask me to run commands on a computer: anything I do myself happens on my phone.
 - Explain steps in plain words, in order, one tap at a time.
 
 How my projects are built
-- Plain HTML, CSS and JavaScript with no build step and no frameworks, unless I say otherwise. Mobile-first, for iPhone: safe areas, touch controls, no hover-only features.
-- Websites and free games are hosted on GitHub Pages from a public repository.
-- Copyright holder: Jacob Cooper. Public contact email: jacoblc22@gmail.com.
-
-Games I sell (my studio, the JustForFun-Games organization on GitHub)
-- Each game has two repositories: a private one on my account, <name>-source, with the real game, and a public one in JustForFun-Games, <name>, that holds the game only encrypted, the store listings, the website and the build workflows.
-- The private repository came from my app-starter template. Its AGENTS.md has the rules for the game code: read it first. The game lives in web/, its settings in app.json, the store text in store/listing/<lang>.json and screenshots in store/screenshots/.
-- Every push to the private repository publishes to the public one. I release from GitMobile's Release screen: TestFlight, App Store, and Google Play internal testing then production.
-- App IDs start with com.jacobcooper. and can never change once a game is in a store.
-- Keep things working offline: no libraries or fonts from other websites; copy them into the project.
-
-Free and open games, like The Way: An Eyewitness Account, stay in one public repository and are released from it.`;
+- Plain HTML, CSS and JavaScript with no build step, unless I say otherwise. Mobile-first: safe areas, touch controls, no hover-only features.
+- Websites are hosted on GitHub Pages.`;
+// Who you are and how your studio is set up, from Your details and Studio setup
+function aboutMe() {
+  const p = profile(), st = studio(), out = [];
+  if (p.name) out.push(`- Name (copyright holder): ${p.name}`);
+  if (p.studio) out.push(`- I publish as: ${p.studio}`);
+  if (p.email) out.push(`- Public contact email: ${p.email}`);
+  if (st.org) {
+    out.push(`- My studio's GitHub organization: ${st.org}. Each game I sell has two repositories: a private one on my account, <name>-source, with the real game, and a public one in ${st.org}, <name>, that holds the game only encrypted, the store listings, the website and the build workflows.`,
+      `- Every push to the private repository publishes to the public one. I release from GitMobile's Release screen: TestFlight, App Store, Google Play.`,
+      `- The private repositories come from my template${st.template ? ` (${st.template})` : ''}. Its AGENTS.md has the rules for game code: read it first. The game lives in web/, its settings in app.json, the store text in store/listing/<lang>.json.`,
+      `- Keep games working offline: no libraries or fonts from other websites; copy them into the project.`);
+    if (st.prefix) out.push(`- App IDs start with ${st.prefix} and can never change once a game is in a store.`);
+  }
+  return out.length ? out.join('\n') : '_Not set up yet: GitMobile → Studio → Your details._';
+}
 const aiNotes = () => lsGet(AI_NOTES_KEY) || AI_NOTES_DEFAULT;
 const briefOpts = () => { try { return { notes: true, repo: true, files: true, guide: true, commits: true, builds: true, ...JSON.parse(lsGet(BRIEF_OPTS_KEY) || '{}') }; } catch { return { notes: true, repo: true, files: true, guide: true, commits: true, builds: true }; } };
 
@@ -3908,7 +3949,7 @@ function showBrief() {
         <textarea class="field" id="br-ask" rows="3" placeholder="Fix the jump on small phones, and add a pause button" style="font-family:inherit">${esc(lsGet('gm_brief_ask_' + S.repo.full_name) || '')}</textarea></div>
     </div>
     <div class="card">
-      ${row('notes', 'How I work', 'Your process, the same in every brief. <a href="#" id="br-edit">Edit it</a>')}
+      ${row('notes', 'About me and how I work', `Your details and your process, the same in every brief. <a href="#" id="br-me">Your details</a> · <a href="#" id="br-edit">How I work</a>`)}
       ${row('repo', 'This repository', 'What kind it is, its settings and website')}
       ${row('files', 'Every file', 'Paths and sizes')}
       ${row('guide', 'Its instructions', 'AGENTS.md, or the README')}
@@ -3931,6 +3972,7 @@ function showBrief() {
   $('#brief-body').querySelectorAll('[data-o]').forEach(c => c.onchange = () => { const v = briefOpts(); v[c.dataset.o] = c.checked; lsSet(BRIEF_OPTS_KEY, JSON.stringify(v)); rebuild(); });
   let askT; $('#br-ask').oninput = () => { lsSet('gm_brief_ask_' + S.repo.full_name, $('#br-ask').value); clearTimeout(askT); askT = setTimeout(rebuild, 600); };
   $('#br-edit').onclick = e => { e.preventDefault(); editAiNotes(rebuild); };
+  $('#br-me').onclick = e => { e.preventDefault(); editProfile(rebuild); };
   $('#br-copy').onclick = () => text && copyText(text);
   $('#br-share').onclick = () => text && sheetMenu('Share the brief', [
     { label: 'Brief only', sub: `${S.repo.name}-brief.md`, icon: 'text', fn: () => shareFiles([new File([text], `${S.repo.name}-brief.md`, { type: 'text/markdown' })]) },
@@ -3941,7 +3983,7 @@ function showBrief() {
 function editAiNotes(after) {
   openSheet(`<div class="sh-title">How I work</div>
     <div style="padding:0 10px 8px">
-      <div class="hint" style="margin:0 2px 10px">Goes at the top of every brief. Write it the way you'd explain your process to someone new.</div>
+      <div class="hint" style="margin:0 2px 10px">Goes in every brief, after Your details. Write it the way you'd explain your process to someone new: your tools, how you like files back, anything you're tired of repeating.</div>
       <textarea id="an-val" class="field" rows="14" style="font-family:inherit;line-height:1.4;margin-bottom:8px">${esc(aiNotes())}</textarea>
       <div class="row2"><button class="btn ghost" id="an-reset" style="margin:0">Start over</button><button class="btn" id="an-save" style="margin:0">Save</button></div>
     </div>`);
@@ -3997,7 +4039,7 @@ async function buildBrief(o, request) {
   const r = S.repo, full = r.full_name, out = [];
   const when = d => d ? new Date(d).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
   out.push(`# Brief for AI: ${r.name}`, `_Made by GitMobile on ${when(Date.now())}. It describes my setup and this repository as it is right now; read all of it before answering._`);
-  if (o.notes) out.push('', '## How I work', '', aiNotes());
+  if (o.notes) out.push('', '## About me', '', aboutMe(), '', '## How I work', '', aiNotes());
   if (request) out.push('', '## What I want today', '', request);
   const blob = async p => { const e = S.byPath.get(p); if (!e) return null; try { return new TextDecoder().decode(b64ToBytes((await gh(`/repos/${full}/git/blobs/${e.sha}`)).content)); } catch { return null; } };
   let rel = null;
